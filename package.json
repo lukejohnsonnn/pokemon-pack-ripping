@@ -1,0 +1,1 @@
+{"dependencies":{"express":"^4.19.2"},"description":"Super satisfying Pokémon pack ripping app — real sets, real art, real pull odds, live from the Pokémon TCG API.","engines":{"node":">=18"},"license":"MIT","main":"server.js","name":"pokemon-pack-ripping","scripts":{"start":"node server.js","verify":"node scripts/verify.js"},"version":"1.0.0"}

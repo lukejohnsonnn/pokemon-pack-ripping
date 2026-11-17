@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pokémon Pack Ripping — Real Packs, Real Pulls</title>
+<meta name="description" content="Rip real Pokémon booster packs. Real sets, real art, real pull odds.">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="logo">⚡ <span>PACK RIP</span></div>
+  <div class="top-actions">
+    <button id="binderBtn" class="pill-btn" type="button">📒 Binder <span id="binderCount">0</span></button>
+  </div>
+</header>
+
+<main id="app">
+  <!-- ============ SHELF ============ -->
+  <section id="shelfView">
+    <h1>Rip a pack.</h1>
+    <p class="sub">Real Pokémon cards — real sets, real art, real pull odds. Pick a pack, tear it open, flip every card.</p>
+    <div id="filterRow" class="filter-row" role="tablist" aria-label="Pack categories"></div>
+    <p id="shelfHint" class="hint">Tap a pack to rip it.</p>
+    <div id="shelfGrid" class="shelf-grid"></div>
+    <div id="shelfLoading" class="loading">Loading packs…</div>
+    <footer class="foot">
+      Card data &amp; prices live from the Pokémon TCG API · Binder saves on this device ·
+      <button id="oddsBtn" class="link-btn" type="button">Pull odds</button>
+    </footer>
+  </section>
+
+  <!-- ============ RIP ============ -->
+  <section id="ripView" hidden>
+    <button id="backBtn" class="back-btn" type="button">← All packs</button>
+    <div id="valuePill" class="value-pill" hidden>💰 Value so far: <b id="valueSoFar">$0.00</b></div>
+    <div id="ripStage" class="rip-stage"></div>
+    <div id="ripControls" class="rip-controls" hidden>
+      <button id="openAllBtn" class="primary-btn" type="button">Open all at once</button>
+      <span id="cardsLeft" class="cards-left"></span>
+    </div>
+    <div id="summary" class="summary" hidden></div>
+  </section>
+
+  <!-- ============ BINDER ============ -->
+  <section id="binderView" hidden>
+    <button id="binderBackBtn" class="back-btn" type="button">← Back</button>
+    <h2>📒 Your Binder</h2>
+    <div id="binderStats" class="binder-stats"></div>
+    <div id="binderGrid" class="binder-grid"></div>
+    <div class="binder-actions">
+      <button id="clearBinderBtn" class="danger-btn" type="button">Clear binder</button>
+    </div>
+  </section>
+</main>
+
+<!-- Odds modal -->
+<div id="oddsModal" class="modal" hidden>
+  <div class="modal-card">
+    <button id="oddsClose" class="modal-x" type="button">✕</button>
+    <h3>Pull odds</h3>
+    <div id="oddsBody"></div>
+    <p class="fine">Draw weights used by this app. The Pokémon Company does not publish exact per-card pack odds, so vintage / EX rates are the standard collector estimates (Base Set holo ≈ 1-in-3, Gold Star ≈ 1-in-67 packs). Prices are TCGplayer market prices when available.</p>
+  </div>
+</div>
+
+<!-- Celebration overlay -->
+<div id="celebration" class="celebration" hidden>
+  <div class="cele-banner" id="celeBanner">GOD PULL</div>
+  <div class="cele-sub" id="celeSub"></div>
+</div>
+<div id="confettiLayer" class="confetti-layer"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

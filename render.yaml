@@ -1,0 +1,10 @@
+name: pokemon-pack-ripping
+services:
+  - type: web
+    name: pokemon-pack-ripping
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    autoDeploy: true
+    healthCheckPath: /api/health
