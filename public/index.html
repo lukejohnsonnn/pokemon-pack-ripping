@@ -11,6 +11,7 @@
 <header class="topbar">
   <div class="logo">⚡ <span>PACK RIP</span></div>
   <div class="top-actions">
+    <button id="topBackBtn" class="pill-btn" type="button" hidden>← Back</button>
     <button id="binderBtn" class="pill-btn" type="button">📒 Binder <span id="binderCount">0</span></button>
   </div>
 </header>
@@ -21,7 +22,7 @@
     <h1>Rip a pack.</h1>
     <p class="sub">Real Pokémon cards — real sets, real art, real pull odds. Pick a pack, tear it open, flip every card.</p>
     <div id="filterRow" class="filter-row" role="tablist" aria-label="Pack categories"></div>
-    <p id="shelfHint" class="hint">Tap a pack to rip it.</p>
+    <p id="shelfHint" class="hint">Tap a pack to open it.</p>
     <div id="shelfGrid" class="shelf-grid"></div>
     <div id="shelfLoading" class="loading">Loading packs…</div>
     <footer class="foot">
@@ -32,19 +33,20 @@
 
   <!-- ============ RIP ============ -->
   <section id="ripView" hidden>
-    <button id="backBtn" class="back-btn" type="button">← All packs</button>
+    <button id="backBtn" class="back-btn" type="button">← Back to all packs</button>
     <div id="valuePill" class="value-pill" hidden>💰 Value so far: <b id="valueSoFar">$0.00</b></div>
     <div id="ripStage" class="rip-stage"></div>
     <div id="ripControls" class="rip-controls" hidden>
-      <button id="openAllBtn" class="primary-btn" type="button">Open all at once</button>
+      <button id="viewCardBtn" class="secondary-btn" type="button" hidden>🔍 View card</button>
       <span id="cardsLeft" class="cards-left"></span>
+      <div id="revealedThumbs" class="revealed-thumbs"></div>
     </div>
     <div id="summary" class="summary" hidden></div>
   </section>
 
   <!-- ============ BINDER ============ -->
   <section id="binderView" hidden>
-    <button id="binderBackBtn" class="back-btn" type="button">← Back</button>
+    <button id="binderBackBtn" class="back-btn" type="button">← Back to all packs</button>
     <h2>📒 Your Binder</h2>
     <div id="binderStats" class="binder-stats"></div>
     <div id="binderGrid" class="binder-grid"></div>
@@ -61,6 +63,19 @@
     <h3>Pull odds</h3>
     <div id="oddsBody"></div>
     <p class="fine">Draw weights used by this app. The Pokémon Company does not publish exact per-card pack odds, so vintage / EX rates are the standard collector estimates (Base Set holo ≈ 1-in-3, Gold Star ≈ 1-in-67 packs). Prices are TCGplayer market prices when available.</p>
+  </div>
+</div>
+
+<!-- Card viewer modal -->
+<div id="cardViewer" class="modal" hidden>
+  <div class="modal-card viewer-card">
+    <button id="viewerClose" class="modal-x" type="button">✕</button>
+    <img id="viewerImg" src="" alt="">
+    <div class="viewer-meta">
+      <b id="viewerName"></b>
+      <span id="viewerRarity"></span>
+      <span id="viewerPrice"></span>
+    </div>
   </div>
 </div>
 

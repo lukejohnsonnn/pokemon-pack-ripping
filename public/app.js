@@ -1,6 +1,22 @@
 // Pokémon Pack Ripping — client.
 // Real data only: sets/pools/prices come from /api/* (Pokémon TCG API,
 // TCGdex fallback). Binder lives in localStorage (v1).
+//
+// Opening flow (matches the current live app):
+//  - Shelf tap selects a set and shows the sealed pack. Tapping the sealed
+//    pack itself does NOTHING — a rip only starts from the Rip button.
+//    Swiping over the sealed pack scrolls the page vertically as normal.
+//  - Rip button fetches 1 or 5 packs, then a slicing stage: the pack top
+//    NEVER moves and there is no black hole. A rainbow trail follows the
+//    finger; swipe across the pack (across the tight group for 5 packs)
+//    and it opens instantly mid-swipe once past the threshold. No copy
+//    anywhere names the threshold — the hint just says swipe across.
+//  - "Open all at once" is a switch chosen UP FRONT, before opening.
+//    On: slice goes straight to a combined per-pack summary. Off: reveal
+//    card by card through each pack in turn.
+//  - Every card is tappable to view (full-screen viewer).
+//  - Card swipe keeps its tilt during the drag but eases back to zero, so
+//    every card ends flat and face-up; the next pack never inherits tilt.
 const $ = (s) => document.querySelector(s);
 const money = (n) => '$' + (n == null ? '—' : Number(n).toFixed(2));
 const fmt = (n) => '$' + Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -23,9 +39,15 @@ const ODDS_TEXT = [
 let sets = [];
 let filter = 'all';
 let chaseArt = {}; // setId -> { imageHires, name, price }
-let rip = null;    // current rip payload
-let ripIndex = 0;  // index of active card
+let currentSet = null;   // set being ripped
+let packs = [];          // rip payloads for this opening (1 or 5)
+let packIdx = 0;         // which pack is being revealed
+let rip = null;          // current pack's rip payload (packs[packIdx])
+let ripIndex = 0;        // index of active card within the current pack
 let revealedValue = 0;
+let packCount = 1;       // 1-pack / 5-pack selector, chosen up front
+let openAllUpFront = false;
+let revealedCards = [];  // cards already revealed, for thumbnails
 
 // ---------------- Binder (localStorage) ----------------
 const BINDER_KEY = 'ppr-binder-v1';
@@ -56,7 +78,6 @@ async function loadSets() {
   renderFilters();
   renderShelf();
   $('#shelfLoading').hidden = true;
-  // Chase art per set (highest-priced card in the live pool).
   sets.forEach(async (s) => {
     try {
       const r = await fetch('/api/set/' + s.id);
@@ -76,7 +97,7 @@ function renderFilters() {
 
 function packCardHTML(s) {
   const chase = s.chase ? `Chase: <span class="chase">${escapeHtml(s.chase)}</span>` : '';
-  return `<button class="pack" data-set="${s.id}" type="button" aria-label="Rip ${escapeHtml(s.name)}">
+  return `<button class="pack" data-set="${s.id}" type="button" aria-label="Open ${escapeHtml(s.name)}">
     <span class="pack-inner">
       <span class="pack-art" data-pack-art="${s.id}"></span>
       <span class="pack-burst"></span><span class="pack-bend"></span><span class="pack-foil"></span>
@@ -96,13 +117,25 @@ function renderShelf() {
   const list = filter === 'all' ? sets : sets.filter((s) => s.category === filter);
   const grid = $('#shelfGrid');
   grid.innerHTML = list.map(packCardHTML).join('');
+  // Shelf tap selects the set and shows its sealed pack — it does not rip.
   grid.querySelectorAll('.pack').forEach((el) => el.addEventListener('click', () => openPack(el.dataset.set)));
-  // Re-apply any chase art already loaded.
   for (const [id, c] of Object.entries(chaseArt)) {
     const el = grid.querySelector(`[data-pack-art="${id}"]`);
     if (el) el.style.backgroundImage = `url("${c.imageHires || c.image}")`;
   }
 }
+
+// ---------------- Card viewer (every card is tappable) ----------------
+function openViewer(card) {
+  if (!card) return;
+  $('#viewerImg').src = card.imageHires || card.image || '';
+  $('#viewerImg').alt = card.name || '';
+  $('#viewerName').textContent = card.name || '';
+  $('#viewerRarity').textContent = card.rarity || '';
+  $('#viewerPrice').textContent = money(card.price);
+  $('#cardViewer').hidden = false;
+}
+function closeViewer() { $('#cardViewer').hidden = true; }
 
 // ---------------- Sounds & confetti ----------------
 let audioCtx = null;
@@ -149,79 +182,230 @@ function celebrate(kind, label) {
   setTimeout(() => { cel.hidden = true; document.body.classList.remove('flash', 'shake'); }, 2600);
 }
 
-// ---------------- Rip flow ----------------
+// ---------------- Navigation ----------------
 function showView(id) {
   for (const v of ['shelfView', 'ripView', 'binderView']) document.getElementById(v).hidden = v !== id;
+  // Sticky top-bar Back only shows while a set is open (rip view).
+  $('#topBackBtn').hidden = id !== 'ripView';
   window.scrollTo({ top: 0 });
 }
+function backToShelf() {
+  currentSet = null; packs = []; rip = null;
+  showView('shelfView');
+}
 
-async function openPack(setId) {
+// ---------------- Rip flow: sealed pack (button-only) ----------------
+function openPack(setId) {
   const set = sets.find((s) => s.id === setId);
   if (!set) return;
+  currentSet = set;
+  packCount = 1;
+  openAllUpFront = false;
+  packs = []; rip = null; packIdx = 0; ripIndex = 0;
+  revealedValue = 0; revealedCards = [];
   showView('ripView');
   $('#summary').hidden = true;
   $('#ripControls').hidden = true;
   $('#valuePill').hidden = true;
-  revealedValue = 0;
   const stage = $('#ripStage');
-  stage.innerHTML = `<div class="sealed-wrap" id="sealedWrap"><div class="pack-inner" id="sealedPack"></div><div class="rip-hint">Tap the pack to tear it open</div></div>`;
-  // Reuse the shelf pack face for the big sealed pack.
+  const art = chaseArt[setId];
+  stage.innerHTML = `
+    <div class="sealed-wrap" id="sealedWrap">
+      <div class="pack-inner" id="sealedPack"></div>
+      <div class="chase-line" id="chaseLine"></div>
+      <div class="count-picker" role="group" aria-label="How many packs">
+        <button class="count-btn active" data-count="1" type="button">1 pack</button>
+        <button class="count-btn" data-count="5" type="button">5 packs</button>
+      </div>
+      <label class="openall-toggle"><input type="checkbox" id="openAllToggle"> Open all at once</label>
+      <button class="primary-btn rip-btn" id="ripBtn" type="button">Rip ${escapeHtml(set.name)}</button>
+      <p class="rip-hint">Press Rip, then swipe across the pack to open it.</p>
+    </div>`;
+  // Reuse the shelf pack face for the big sealed pack. Deliberately NO
+  // click / pointer handler on the pack itself: tapping it does nothing.
   const tmp = document.createElement('div');
   tmp.innerHTML = packCardHTML(set);
   const inner = tmp.querySelector('.pack-inner');
-  $('#sealedPack').replaceWith(inner);
+  const sealed = $('#sealedPack');
+  sealed.replaceWith(inner);
   inner.id = 'sealedPack';
-  const art = chaseArt[setId];
   if (art) { const a = inner.querySelector('.pack-art'); if (a) a.style.backgroundImage = `url("${art.imageHires || art.image}")`; }
+  // Chase card is tappable to view it.
+  const chaseLine = $('#chaseLine');
+  if (art) {
+    chaseLine.innerHTML = `Chase: <button class="link-btn chase-view" type="button">${escapeHtml(art.name)} · ${money(art.price)} 🔍</button>`;
+    chaseLine.querySelector('.chase-view').addEventListener('click', () => openViewer(art));
+  }
+  stage.querySelectorAll('.count-btn').forEach((b) => b.addEventListener('click', () => {
+    packCount = Number(b.dataset.count);
+    stage.querySelectorAll('.count-btn').forEach((x) => x.classList.toggle('active', x === b));
+    $('#ripBtn').textContent = packCount === 5 ? `Rip 5 ${escapeHtml(set.name)} packs` : `Rip ${escapeHtml(set.name)}`;
+  }));
+  $('#openAllToggle').addEventListener('change', (e) => { openAllUpFront = e.target.checked; });
+  $('#ripBtn').addEventListener('click', startRip);
+}
 
-  let r;
+async function startRip() {
+  if (!currentSet) return;
+  const stage = $('#ripStage');
+  const btn = $('#ripBtn');
+  btn.disabled = true;
+  btn.textContent = 'Loading packs…';
+  let data;
   try {
-    const res = await fetch('/api/rip/' + setId);
-    r = await res.json();
-    if (r.error) throw new Error(r.error);
+    const res = await fetch('/api/rip/' + currentSet.id, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ count: packCount }),
+    });
+    data = await res.json();
+    if (data.error) throw new Error(data.error);
   } catch (e) {
     stage.innerHTML = `<p class="empty">Couldn't load that pack right now (${escapeHtml(e.message)}). Check your connection and try again.</p>`;
     return;
   }
-  rip = r; ripIndex = 0;
-  const wrap = $('#sealedWrap');
-  wrap.addEventListener('click', () => tearOpen(wrap), { once: true });
+  packs = data.packs;
+  packIdx = 0; rip = packs[0]; ripIndex = 0;
+  revealedValue = 0; revealedCards = [];
+  showSliceStage(data);
 }
 
-function tearOpen(wrap) {
-  wrap.classList.add('tearing');
-  const top = document.createElement('div');
-  top.className = 'tear-top';
-  wrap.prepend(top);
-  const foil = document.createElement('div');
-  foil.className = 'foil-inside';
-  wrap.prepend(foil);
-  const flash = document.createElement('div');
-  flash.className = 'rip-flash';
-  wrap.appendChild(flash);
-  if (rip.hasSuper) {
-    const aura = document.createElement('div');
-    aura.className = 'gold-aura';
-    wrap.appendChild(aura);
-    const rays = document.createElement('div');
-    rays.className = 'gold-rays';
-    wrap.appendChild(rays);
-    const teaser = document.createElement('div');
-    teaser.className = 'teaser';
-    teaser.textContent = rip.hasGod ? '✨ Something GOD-TIER is in this pack…' : '✨ Something special is in this pack…';
+// ---------------- Slicing stage: rainbow trail, pack never moves ----------------
+// The crimp/top stays exactly in place; there is no black hole. A rainbow
+// trail follows the finger on a canvas overlay, plus a rainbow progress
+// bar. Swiping across the pack (across the tight group for
+// 5 packs) opens it instantly mid-swipe. Short swipes fade the bar back.
+function showSliceStage(data) {
+  const stage = $('#ripStage');
+  const multi = packs.length > 1;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = packCardHTML(currentSet);
+  const faces = packs.map(() => {
+    const inner = tmp.querySelector('.pack-inner').cloneNode(true);
+    const art = chaseArt[currentSet.id];
+    if (art) { const a = inner.querySelector('.pack-art'); if (a) a.style.backgroundImage = `url("${art.imageHires || art.image}")`; }
+    return inner.outerHTML;
+  }).join('');
+  stage.innerHTML = `
+    <div class="slice-wrap ${multi ? 'multi' : ''}" id="sliceWrap">
+      <div class="slice-packs" id="slicePacks">${faces}</div>
+      <canvas id="trailCanvas" class="trail-canvas"></canvas>
+      <div class="slice-progress" aria-hidden="true"><div class="slice-progress-fill" id="sliceFill"></div></div>
+      <p class="slice-hint">Swipe across to open</p>
+      <button class="secondary-btn" id="sliceOpenBtn" type="button">Open it</button>
+    </div>`;
+  // Gold aura / teaser only: light rays, spill and foil flash on open.
+  // No dark hole, no moving top.
+  if (data.hasSuper) {
+    const wrap = $('#sliceWrap');
+    const aura = document.createElement('div'); aura.className = 'gold-aura'; wrap.appendChild(aura);
+    const rays = document.createElement('div'); rays.className = 'gold-rays'; wrap.appendChild(rays);
+    const teaser = document.createElement('div'); teaser.className = 'teaser';
+    teaser.textContent = data.hasGod ? '✨ Something GOD-TIER is in these packs…' : '✨ Something special is in these packs…';
     wrap.appendChild(teaser);
-    if (navigator.vibrate) navigator.vibrate(40);
   }
   if (navigator.vibrate) navigator.vibrate(25);
-  setTimeout(() => showFan(), rip.hasSuper ? 1100 : 750);
+  attachSlice($('#sliceWrap'), data);
 }
 
+function attachSlice(wrap, data) {
+  const canvas = wrap.querySelector('#trailCanvas');
+  const ctx = canvas.getContext('2d');
+  const fill = wrap.querySelector('#sliceFill');
+  const packsEl = wrap.querySelector('#slicePacks');
+  let slicing = false, startX = 0, opened = false, hue = 0;
+  let lastPt = null;
+
+  function sizeCanvas() {
+    const r = packsEl.getBoundingClientRect();
+    canvas.width = Math.max(1, Math.round(r.width * devicePixelRatio));
+    canvas.height = Math.max(1, Math.round(r.height * devicePixelRatio));
+    canvas.style.width = r.width + 'px';
+    canvas.style.height = r.height + 'px';
+  }
+  sizeCanvas();
+  window.addEventListener('resize', sizeCanvas);
+
+  function setProgress(p) {
+    fill.style.width = (Math.max(0, Math.min(1, p)) * 100) + '%';
+    fill.style.opacity = p > 0 ? '1' : '0';
+  }
+  function drawTrail(x, y) {
+    const rect = canvas.getBoundingClientRect();
+    const px = (x - rect.left) * devicePixelRatio, py = (y - rect.top) * devicePixelRatio;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = `hsl(${hue % 360}, 100%, 60%)`;
+    ctx.lineWidth = 10 * devicePixelRatio;
+    ctx.shadowColor = `hsl(${hue % 360}, 100%, 60%)`;
+    ctx.shadowBlur = 18 * devicePixelRatio;
+    ctx.beginPath();
+    if (lastPt) { ctx.moveTo(lastPt[0], lastPt[1]); } else { ctx.moveTo(px, py); }
+    ctx.lineTo(px, py);
+    ctx.stroke();
+    lastPt = [px, py];
+    hue += 14;
+  }
+  function fadeTrail() {
+    // Fade the trail out over ~0.4s instead of snapping it away.
+    let op = 1;
+    const step = () => { op -= 0.12; canvas.style.opacity = String(Math.max(0, op)); if (op > 0) requestAnimationFrame(step); else { ctx.clearRect(0, 0, canvas.width, canvas.height); canvas.style.opacity = '1'; } };
+    requestAnimationFrame(step);
+  }
+  function completeSlice() {
+    if (opened) return;
+    opened = true;
+    // Quick light show only: flash + rays + spill. ~0.4s (0.65s for god
+    // packs), then the cards land. No top movement, no black hole.
+    const flash = document.createElement('div');
+    flash.className = 'rip-flash';
+    wrap.appendChild(flash);
+    if (navigator.vibrate) navigator.vibrate(40);
+    setTimeout(() => {
+      if (openAllUpFront) showSummary();
+      else showFan();
+    }, data.hasGod ? 650 : 400);
+  }
+
+  wrap.addEventListener('pointerdown', (e) => {
+    if (opened) return;
+    slicing = true; startX = e.clientX; lastPt = null;
+    try { wrap.setPointerCapture(e.pointerId); } catch { /* noop */ }
+    drawTrail(e.clientX, e.clientY);
+  });
+  wrap.addEventListener('pointermove', (e) => {
+    if (!slicing || opened) return;
+    drawTrail(e.clientX, e.clientY);
+    const width = packsEl.getBoundingClientRect().width || 1;
+    const progress = Math.abs(e.clientX - startX) / width;
+    setProgress(progress);
+    if (progress >= 0.5) completeSlice();
+  });
+  function endSlice() {
+    if (!slicing || opened) return;
+    slicing = false;
+    // Short swipe: fade the bar back, fade the trail.
+    fill.style.transition = 'width .35s ease, opacity .35s ease';
+    setProgress(0);
+    setTimeout(() => { fill.style.transition = ''; }, 400);
+    fadeTrail();
+  }
+  wrap.addEventListener('pointerup', endSlice);
+  wrap.addEventListener('pointercancel', endSlice);
+  wrap.querySelector('#sliceOpenBtn').addEventListener('click', () => completeSlice());
+}
+
+// ---------------- Reveal: fan, tap/swipe, ends flat ----------------
 function showFan() {
   const stage = $('#ripStage');
   $('#ripControls').hidden = false;
   $('#valuePill').hidden = false;
-  $('#valueSoFar').textContent = '$0.00';
-  $('#cardsLeft').textContent = `${rip.cards.length} cards left`;
+  $('#viewCardBtn').hidden = true;
+  $('#valueSoFar').textContent = fmt(revealedValue);
+  const totalCards = packs.reduce((s, p) => s + p.cards.length, 0);
+  const done = packs.slice(0, packIdx).reduce((s, p) => s + p.cards.length, 0) + ripIndex;
+  $('#cardsLeft').textContent = packs.length > 1
+    ? `Pack ${packIdx + 1} of ${packs.length} · ${totalCards - done} cards left`
+    : `${rip.cards.length - ripIndex} cards left`;
+  renderThumbs();
   const fan = document.createElement('div');
   fan.className = 'fan';
   fan.id = 'fan';
@@ -231,7 +415,9 @@ function showFan() {
     const el = document.createElement('div');
     el.className = 'flip-card';
     el.dataset.index = i;
+    el.dataset.pack = packIdx;
     el.style.zIndex = rip.cards.length - i;
+    // Fan offsets are reset to exactly flat for the active card below.
     el.style.transform = `translateY(${Math.min(i, 4) * 6}px) rotate(${(i % 2 ? 1 : -1) * Math.min(i, 3) * 1.2}deg) scale(${1 - Math.min(i, 4) * 0.02})`;
     el.innerHTML = `<div class="flip-inner">
       <div class="flip-face flip-back">${CARD_BACK_SVG}<div class="shine"></div></div>
@@ -244,9 +430,14 @@ function showFan() {
   markLastCardSpecial();
 }
 
+function renderThumbs() {
+  const box = $('#revealedThumbs');
+  box.innerHTML = revealedCards.map((c, i) =>
+    `<button class="thumb" type="button" data-thumb="${i}" aria-label="View ${escapeHtml(c.name)}"><img src="${c.image}" alt="${escapeHtml(c.name)}"></button>`).join('');
+  box.querySelectorAll('.thumb').forEach((b) => b.addEventListener('click', () => openViewer(revealedCards[Number(b.dataset.thumb)])));
+}
+
 function markLastCardSpecial() {
-  // The hit slot is the last card. If the pack hides a super/god card,
-  // give that face-down card a breathing gold halo + slow-mo flip.
   if (!rip.hasSuper) return;
   const last = document.querySelector(`.flip-card[data-index="${rip.cards.length - 1}"]`);
   if (last) last.dataset.special = rip.hasGod ? 'god' : 'super';
@@ -261,10 +452,14 @@ function revealActive() {
   const special = el.dataset.special;
   if (special) el.classList.add('gold-halo', 'slowmo');
   el.classList.add('flipped');
+  // Settle flat: clear any drag tilt the moment the card is face-up.
+  el.style.transform = 'translate(0px, 0px) rotate(0deg)';
   revealedValue += card.price || 0;
   animateValue(revealedValue);
+  revealedCards.push(card);
+  renderThumbs();
+  $('#viewCardBtn').hidden = false;
   if (navigator.vibrate) navigator.vibrate(15);
-  // Celebration fires when the special card itself is revealed.
   if (card.tier === 'god' || card.tier === 'super') {
     setTimeout(() => celebrate(card.tier, `${card.name} — ${fmt(card.price)}`), special ? 700 : 250);
   }
@@ -274,16 +469,29 @@ function advanceCard() {
   const el = activeCardEl();
   if (!el) return;
   el.style.transition = 'transform .45s ease-in, opacity .45s';
-  el.style.transform = 'translateX(120vw) rotate(18deg)';
+  el.style.transform = 'translateX(120vw) rotate(0deg)';
   el.style.opacity = '0';
   setTimeout(() => el.remove(), 480);
   ripIndex += 1;
   const left = rip.cards.length - ripIndex;
-  $('#cardsLeft').textContent = left > 0 ? `${left} card${left === 1 ? '' : 's'} left` : '';
+  const totalCards = packs.reduce((s, p) => s + p.cards.length, 0);
+  const done = packs.slice(0, packIdx).reduce((s, p) => s + p.cards.length, 0) + ripIndex;
+  $('#cardsLeft').textContent = packs.length > 1
+    ? `Pack ${packIdx + 1} of ${packs.length} · ${totalCards - done} cards left`
+    : (left > 0 ? `${left} card${left === 1 ? '' : 's'} left` : '');
+  $('#viewCardBtn').hidden = true;
   const next = activeCardEl();
   if (next) {
+    // Next card starts exactly flat — never inherits the previous tilt.
+    next.style.transition = '';
     next.style.transform = 'translateY(0) rotate(0deg) scale(1)';
     if (next.dataset.special) next.classList.add('gold-halo');
+  } else if (packIdx + 1 < packs.length) {
+    // Next pack in the batch.
+    packIdx += 1;
+    rip = packs[packIdx];
+    ripIndex = 0;
+    setTimeout(showFan, 350);
   } else {
     setTimeout(showSummary, 500);
   }
@@ -301,8 +509,8 @@ function animateValue(target) {
 }
 
 // Tap OR swipe, on the same card, with a lerped rAF drag loop.
-// touch-action:none + non-passive touchmove preventDefault stop the page
-// from ever being grabbed instead of the card.
+// Tilt is kept DURING the drag, but it eases back to zero as the card
+// travels, so the card always ends flat and face-up.
 function attachReveal(fan) {
   let drag = null;
   let rafId = null;
@@ -313,8 +521,10 @@ function attachReveal(fan) {
     curY += (tgtY - curY) * 0.35;
     const el = activeCardEl();
     if (el && drag) {
-      el.style.transform = `translate(${curX}px, ${curY}px) rotate(${curX * 0.08}deg)`;
-      const glow = Math.min(1, Math.hypot(curX, curY) / 70);
+      const dist = Math.hypot(curX, curY);
+      const tilt = curX * 0.08 * (1 - Math.min(1, dist / 200));
+      el.style.transform = `translate(${curX}px, ${curY}px) rotate(${tilt}deg)`;
+      const glow = Math.min(1, dist / 70);
       el.style.boxShadow = glow > 0.15 ? `0 0 ${20 + glow * 30}px rgba(245,197,66,${glow * 0.8})` : '';
       if (glow > 0.85 && !drag.tick) { drag.tick = true; if (navigator.vibrate) navigator.vibrate(10); }
     }
@@ -343,29 +553,27 @@ function attachReveal(fan) {
     const dt = Date.now() - drag.t0;
     const isTap = drag.moved < 12 && dt < 350;
     const fling = Math.hypot(tgtX, tgtY) > 70 || (drag.moved > 40 && dt < 250);
-    const wasDrag = drag;
     drag = null;
     if (!el) return;
     el.style.boxShadow = '';
     if (isTap) {
-      el.style.transform = '';
+      el.style.transform = 'translate(0px, 0px) rotate(0deg)';
       if (el.classList.contains('flipped')) advanceCard();
       else revealActive();
     } else if (fling) {
       el.style.transition = 'transform .3s ease-out, opacity .3s';
-      el.style.transform = `translate(${tgtX * 4}px, ${tgtY * 2}px) rotate(${tgtX * 0.15}deg)`;
+      el.style.transform = `translate(${tgtX * 4}px, ${tgtY * 2}px) rotate(0deg)`;
       el.style.opacity = '0';
       const flipped = el.classList.contains('flipped');
       setTimeout(() => { el.remove(); }, 320);
-      if (flipped) { ripIndex += 1; const left = rip.cards.length - ripIndex; $('#cardsLeft').textContent = left > 0 ? `${left} cards left` : ''; if (!activeCardEl()) setTimeout(showSummary, 350); }
+      if (flipped) { ripIndex += 1; $('#viewCardBtn').hidden = true; if (!activeCardEl()) { if (packIdx + 1 < packs.length) { packIdx += 1; rip = packs[packIdx]; ripIndex = 0; setTimeout(showFan, 350); } else setTimeout(showSummary, 350); } else { const n = activeCardEl(); if (n) n.style.transform = 'translateY(0) rotate(0deg) scale(1)'; } }
       else { revealActive(); setTimeout(() => { if (activeCardEl()) advanceCard(); }, 650); }
     } else {
-      // Spring snap-back.
+      // Spring snap-back, landing flat.
       el.style.transition = 'transform .35s cubic-bezier(.2,1.4,.4,1)';
-      el.style.transform = '';
+      el.style.transform = 'translate(0px, 0px) rotate(0deg)';
       setTimeout(() => { el.style.transition = ''; }, 380);
     }
-    void wasDrag;
   }
   fan.addEventListener('pointerup', endDrag);
   fan.addEventListener('pointercancel', endDrag);
@@ -376,26 +584,33 @@ function attachReveal(fan) {
 function showSummary() {
   $('#ripControls').hidden = true;
   const s = $('#summary');
-  const total = rip.totalValue;
-  const best = rip.best;
-  // Save to binder.
+  const allCards = packs.flatMap((p) => p.cards);
+  const total = packs.reduce((sum, p) => sum + p.totalValue, 0);
+  const best = allCards.reduce((b, c) => ((c.price || 0) > (b.price || 0) ? c : b), allCards[0]);
+  const hasGod = packs.some((p) => p.hasGod);
+  const hasSuper = packs.some((p) => p.hasSuper);
+  // Save every card from every pack to the binder.
   const now = Date.now();
-  for (const c of rip.cards) binder.push({ id: c.id, name: c.name, rarity: c.rarity, price: c.price, image: c.image, setName: rip.set.name, ts: now });
-  packsRipped += 1;
+  for (const p of packs) for (const c of p.cards) binder.push({ id: c.id, name: c.name, rarity: c.rarity, price: c.price, image: c.image, imageHires: c.imageHires, setName: p.set.name, ts: now });
+  packsRipped += packs.length;
   localStorage.setItem('ppr-packs-ripped', String(packsRipped));
   saveBinder(binder);
   updateBinderCount();
   s.hidden = false;
-  s.innerHTML = `<h3>${escapeHtml(rip.set.name)} — pack summary</h3>
+  s.innerHTML = `<h3>${escapeHtml(currentSet.name)} — ${packs.length > 1 ? packs.length + ' packs' : 'pack'} summary</h3>
     <div class="total" id="summaryTotal">$0.00</div>
     <p>Best pull: <b>${escapeHtml(best.name)}</b> · ${escapeHtml(best.rarity)} · ${fmt(best.price)}</p>
-    <div class="summary-grid">${rip.cards.map((c) => `<img src="${c.image}" alt="${escapeHtml(c.name)}" title="${escapeHtml(c.name)}">`).join('')}</div>
+    ${packs.map((p, i) => `<div class="summary-pack"><b>Pack ${i + 1} — ${fmt(p.totalValue)}</b>
+      <div class="summary-grid">${p.cards.map((c) => `<button class="summary-thumb" type="button" data-card="${escapeHtml(c.id)}" aria-label="View ${escapeHtml(c.name)}"><img src="${c.image}" alt="${escapeHtml(c.name)}" title="${escapeHtml(c.name)}"></button>`).join('')}</div></div>`).join('')}
     <div class="summary-actions">
-      <button class="primary-btn" id="againBtn" type="button">Rip another ${escapeHtml(rip.set.name)}</button>
+      <button class="primary-btn" id="againBtn" type="button">Rip another ${escapeHtml(currentSet.name)}</button>
       <button class="secondary-btn" id="summaryBinderBtn" type="button">View binder</button>
-      <button class="secondary-btn" id="summaryBackBtn" type="button">All packs</button>
+      <button class="secondary-btn" id="summaryBackBtn" type="button">← Back to all packs</button>
     </div>`;
-  // Count-up total.
+  s.querySelectorAll('.summary-thumb').forEach((b) => b.addEventListener('click', () => {
+    const card = allCards.find((c) => c.id === b.dataset.card);
+    openViewer(card);
+  }));
   const el = $('#summaryTotal');
   const start = performance.now();
   (function step(t) {
@@ -403,11 +618,11 @@ function showSummary() {
     el.textContent = fmt(total * p);
     if (p < 1) requestAnimationFrame(step);
   })(start);
-  if (rip.hasGod) setTimeout(() => celebrate('god', `${best.name} — ${fmt(best.price)}`), 400);
-  else if (rip.hasSuper) setTimeout(() => celebrate('super', `${best.name} — ${fmt(best.price)}`), 400);
-  $('#againBtn').addEventListener('click', () => openPack(rip.set.id));
+  if (hasGod) setTimeout(() => celebrate('god', `${best.name} — ${fmt(best.price)}`), 400);
+  else if (hasSuper) setTimeout(() => celebrate('super', `${best.name} — ${fmt(best.price)}`), 400);
+  $('#againBtn').addEventListener('click', () => openPack(currentSet.id));
   $('#summaryBinderBtn').addEventListener('click', showBinder);
-  $('#summaryBackBtn').addEventListener('click', () => showView('shelfView'));
+  $('#summaryBackBtn').addEventListener('click', backToShelf);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -429,9 +644,13 @@ function showBinder() {
   const uniqueCards = binder.filter((c) => { if (seen.has(c.id)) return false; seen.add(c.id); return true; })
     .sort((a, b) => (b.price || 0) - (a.price || 0));
   $('#binderGrid').innerHTML = uniqueCards.length ? uniqueCards.map((c) => `
-    <div class="binder-card"><img src="${c.image}" alt="${escapeHtml(c.name)}" loading="lazy">
-    <div class="bc-meta"><b>${escapeHtml(c.name)}</b>${counts[c.id] > 1 ? ` ×${counts[c.id]}` : ''}<br>${escapeHtml(c.rarity)} · ${fmt(c.price)}<br>${escapeHtml(c.setName)}</div></div>`).join('')
+    <button class="binder-card" type="button" data-card="${escapeHtml(c.id)}" aria-label="View ${escapeHtml(c.name)}"><img src="${c.image}" alt="${escapeHtml(c.name)}" loading="lazy">
+    <span class="bc-meta"><b>${escapeHtml(c.name)}</b>${counts[c.id] > 1 ? ` ×${counts[c.id]}` : ''}<br>${escapeHtml(c.rarity)} · ${fmt(c.price)}<br>${escapeHtml(c.setName)}</span></button>`).join('')
     : '<p class="empty">No cards yet — go rip a pack.</p>';
+  $('#binderGrid').querySelectorAll('.binder-card').forEach((b) => b.addEventListener('click', () => {
+    const card = uniqueCards.find((c) => c.id === b.dataset.card);
+    openViewer(card);
+  }));
 }
 
 // ---------------- Odds modal ----------------
@@ -441,21 +660,20 @@ function showOdds() {
 }
 
 // ---------------- Wire up ----------------
-$('#backBtn').addEventListener('click', () => showView('shelfView'));
+$('#backBtn').addEventListener('click', backToShelf);
+$('#topBackBtn').addEventListener('click', backToShelf);
 $('#binderBtn').addEventListener('click', showBinder);
-$('#binderBackBtn').addEventListener('click', () => showView('shelfView'));
+$('#binderBackBtn').addEventListener('click', backToShelf);
 $('#clearBinderBtn').addEventListener('click', () => { if (confirm('Clear your whole binder?')) { binder = []; saveBinder(binder); packsRipped = 0; localStorage.setItem('ppr-packs-ripped', '0'); updateBinderCount(); showBinder(); } });
-$('#openAllBtn').addEventListener('click', () => {
-  // Flip everything at once, then jump to the summary.
-  document.querySelectorAll('.flip-card').forEach((el) => el.classList.add('flipped'));
-  rip.cards.forEach((c) => { revealedValue += c.price || 0; });
-  animateValue(revealedValue);
-  if (rip.hasSuper) confetti(rip.hasGod ? 120 : 70, true);
-  setTimeout(showSummary, 900);
+$('#viewCardBtn').addEventListener('click', () => {
+  const el = activeCardEl();
+  if (el && el.classList.contains('flipped')) openViewer(rip.cards[ripIndex]);
 });
 $('#oddsBtn').addEventListener('click', showOdds);
 $('#oddsClose').addEventListener('click', () => { $('#oddsModal').hidden = true; });
 $('#oddsModal').addEventListener('click', (e) => { if (e.target.id === 'oddsModal') $('#oddsModal').hidden = true; });
+$('#viewerClose').addEventListener('click', closeViewer);
+$('#cardViewer').addEventListener('click', (e) => { if (e.target.id === 'cardViewer') closeViewer(); });
 
 updateBinderCount();
 loadSets().catch(() => { $('#shelfLoading').textContent = 'Could not load packs — check your connection and refresh.'; });

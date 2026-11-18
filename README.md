@@ -4,7 +4,11 @@ A super satisfying Pokémon pack-ripping app. Real sets, real art, real pull odd
 
 - **23 packs**, in four categories: 💎 Rare Packs (9 grail sets), ⚡ Modern (7), 🗡️ Sword & Shield Era (4), 🏛️ Vintage Classics (3)
 - Menu packs look like real foil booster packs: crimped seals, chase-card art, Pokémon wordmark, 6+ badge, card-count strip
-- Rip flow: tap the pack to tear the foil, then reveal each card by **tapping it or swiping it** (either direction) — tap/swipe again to move on
+- Rip flow: **button-only** — tapping the sealed pack does nothing (swiping over it scrolls the page). Press Rip, pick 1 or 5 packs, choose the "Open all at once" switch up front, then swipe across the pack to open it: a rainbow trail follows your finger, the pack top never moves, and it pops open once you swipe past the threshold. Quicker lights (~0.4s, ~0.65s for god packs).
+- 5-pack mode: five packs fan out tight together, one swipe slices all five at once; reveal card by card through each pack in turn, or straight to a combined per-pack summary when the up-front switch is on.
+- Reveal: reveal each card by **tapping it or swiping it** (either direction) — tap/swipe again to move on. The swipe keeps its tilt while dragging but eases back to zero, so every card ends flat and face-up.
+- Every card is tappable to view: chase cards, revealed thumbnails, summary cards, and binder cards all open a full-screen viewer (hires art, name, rarity, market price).
+- Back button ("← Back to all packs") on every screen inside a pack, plus "← Back" in the top bar while a set is open. The page is locked horizontally — no side-to-side movement.
 - **Dopamine celebrations** for super-special cards (Special Illustration / Hyper / Secret / Gold Star, or a $100+ hit; $500+ or Gold Star = GOD PULL): gold aura + teaser on the tear, halo + slow-mo flip on the face-down card, jackpot arpeggio, confetti cannon, flash/shake, GOD PULL banner, price count-up — tied to real pull odds, so god pulls stay rare
 - Persistent binder (stats, duplicates, best pulls, pack history) — saved in the browser's localStorage in v1, so no database is needed
 - Live TCGplayer market prices, era-correct pack structure (modern 10-card, vintage 11-card, EX/e-Card 9-card, Gold Star ≈ 1-in-67 packs), odds panel in-app
@@ -36,6 +40,7 @@ No environment variables or database are required. The app fetches card data liv
 - `GET /api/set/:id` — set + its top chase card (highest TCGplayer market price in the pool), used for pack art.
 - `GET /api/pool/:id` — the full live card pool for a set.
 - `GET /api/rip/:id` — a freshly drawn pack: era-correct slots, tiers (`normal / holo / ultra / super / god`), total value, best pull.
+- `POST /api/rip/:id` `{ count: 1..5 }` — rip 1–5 packs of the same set in one call (the 5-pack mode); count is capped at 5.
 - `GET /api/health` — uptime + per-set fetch status (which source served each pool: `pokemontcg.io` or `tcgdex` fallback).
 
 If pokemontcg.io is unreachable, the server falls back to TCGdex (`api.tcgdex.net`, same set IDs) for card pools — art still loads, prices just show as unavailable. The shelf always renders from baked-in metadata even if both are down.

@@ -324,6 +324,30 @@ app.get('/api/rip/:id', async (req, res) => {
   } catch (e) { res.status(502).json({ error: String(e.message) }); }
 });
 
+// POST /api/rip/:id { count: 1..5 } — rip several packs of the same set in
+// one call (the 5-pack mode). Every pack is drawn independently with the
+// same real odds; the client slices all five at once, then reveals them
+// pack by pack (or jumps straight to the combined summary when the
+// up-front "open all at once" switch is on).
+app.post('/api/rip/:id', async (req, res) => {
+  const setId = req.params.id;
+  if (!SET_BY_ID[setId]) return res.status(404).json({ error: 'unknown set' });
+  const count = Math.min(5, Math.max(1, Number((req.body && req.body.count) || 1) || 1));
+  try {
+    const { cards } = await loadPool(setId);
+    const packs = Array.from({ length: count }, () => ripPack(setId, cards));
+    const allCards = packs.flatMap((p) => p.cards);
+    const totalValue = Math.round(packs.reduce((s, p) => s + p.totalValue, 0) * 100) / 100;
+    const best = allCards.reduce((b, c) => ((c.price || 0) > (b.price || 0) ? c : b), allCards[0]);
+    res.json({
+      set: SET_BY_ID[setId], count, packs,
+      totalValue, best,
+      hasSuper: packs.some((p) => p.hasSuper),
+      hasGod: packs.some((p) => p.hasGod),
+    });
+  } catch (e) { res.status(502).json({ error: String(e.message) }); }
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, sets: SETS.length, categories: { rare: 9, modern: 7, swsh: 4, vintage: 3 }, fetchStatus, uptimeSec: Math.round(process.uptime()) });
 });

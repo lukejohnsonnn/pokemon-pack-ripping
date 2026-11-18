@@ -16,6 +16,12 @@ async function get(p) {
   if (!r.ok) throw new Error(`${p} -> HTTP ${r.status}: ${t.slice(0, 200)}`);
   return JSON.parse(t);
 }
+async function post(p, body) {
+  const r = await fetch(BASE + p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const t = await r.text();
+  if (!r.ok) throw new Error(`${p} -> HTTP ${r.status}: ${t.slice(0, 200)}`);
+  return JSON.parse(t);
+}
 
 (async () => {
   let fail = 0;
@@ -40,6 +46,23 @@ async function get(p) {
       fail++;
     }
   }
+  // 5-pack batch: one POST must return 5 real packs of the right size.
+  try {
+    const batch = await post('/api/rip/sv8', { count: 5 });
+    const sizes = batch.packs.map((p) => p.cards.length);
+    const okBatch = batch.packs.length === 5 && sizes.every((n) => n === 10) && batch.totalValue >= 0;
+    console.log(`${okBatch ? 'OK  ' : 'FAIL'} 5-pack batch sv8: packs=${batch.packs.length} sizes=[${sizes.join(',')}] total=$${batch.totalValue} super=${batch.hasSuper} god=${batch.hasGod}`);
+    if (!okBatch) fail++;
+    const batch1 = await post('/api/rip/base1', { count: 5 });
+    const okVintage = batch1.packs.length === 5 && batch1.packs.every((p) => p.cards.length === 11);
+    console.log(`${okVintage ? 'OK  ' : 'FAIL'} 5-pack batch base1: packs=${batch1.packs.length} sizes=[${batch1.packs.map((p) => p.cards.length).join(',')}]`);
+    if (!okVintage) fail++;
+    const bad = await fetch(BASE + '/api/rip/sv8', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: 6 }) });
+    const badData = await bad.json();
+    const okCap = badData.packs.length === 5;
+    console.log(`${okCap ? 'OK  ' : 'FAIL'} count=6 capped to 5 packs`);
+    if (!okCap) fail++;
+  } catch (e) { console.log(`FAIL 5-pack batch: ${e.message}`); fail++; }
   const health = await get('/api/health');
   console.log('\nhealth: sets=%d sources:', health.sets, Object.fromEntries(Object.entries(health.fetchStatus).map(([k, v]) => [k, v.source])));
   console.log(fail === 0 ? '\nALL CHECKS PASSED' : `\n${fail} CHECK(S) FAILED`);

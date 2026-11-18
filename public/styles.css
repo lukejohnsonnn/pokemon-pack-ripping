@@ -4,10 +4,12 @@
   --card-w:min(78vw,300px);
 }
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
-html,body{margin:0;padding:0}
-body{background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overscroll-behavior:none}
+html,body{margin:0;padding:0;overflow-x:clip;overscroll-behavior-x:none}
+body{background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overscroll-behavior:none;overflow-x:clip}
+.hatch-space-root,main,#app{overflow-x:clip}
 button{font-family:inherit;cursor:pointer}
-.topbar{position:sticky;top:0;z-index:20;display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:rgba(15,15,26,.92);backdrop-filter:blur(8px);border-bottom:1px solid #262640}
+.topbar{position:sticky;top:0;z-index:20;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px;background:rgba(15,15,26,.92);backdrop-filter:blur(8px);border-bottom:1px solid #262640}
+.top-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .logo{font-weight:900;letter-spacing:.08em;font-size:18px}
 .logo span{color:var(--yellow)}
 .pill-btn{background:#23233a;color:var(--ink);border:1px solid #3a3a5c;border-radius:999px;padding:8px 14px;font-weight:700}
@@ -69,20 +71,37 @@ h2{font-size:26px}
 /* ---- Rip view ---- */
 .back-btn{background:none;border:1px solid #3a3a5c;color:var(--ink);border-radius:999px;padding:8px 14px;font-weight:700;margin-bottom:12px}
 .value-pill{position:sticky;top:64px;z-index:15;display:inline-block;background:#1d2b1d;border:1px solid #3f7a3f;color:#b8f0b8;border-radius:999px;padding:8px 14px;font-weight:700;margin-bottom:10px}
-.rip-stage{position:relative;min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center}
-.sealed-wrap{position:relative;width:var(--card-w);max-width:320px}
+.rip-stage{position:relative;min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow-x:clip;max-width:100vw}
+.sealed-wrap{position:relative;width:var(--card-w);max-width:320px;text-align:center}
 .sealed-wrap .pack-inner{animation-duration:5s}
-.sealed-wrap.tearing .pack-inner{animation:none}
-.tear-top{position:absolute;top:0;left:0;right:0;height:16px;z-index:5;border-radius:10px 10px 0 0;
-  background:repeating-linear-gradient(90deg,#d7d7dd 0 1.8px,#90909a 1.8px 3.6px);
-  transition:transform .55s cubic-bezier(.2,.9,.3,1.4), opacity .55s}
-.tearing .tear-top{transform:translateY(-90px) rotate(-24deg);opacity:0}
-.foil-inside{position:absolute;inset:14px 0 0 0;z-index:4;background:linear-gradient(180deg,#e8e8ee,#b9b9c4 30%,#dcdce4);clip-path:polygon(0 0,4% 18%,1% 38%,5% 60%,2% 82%,6% 100%,100% 100%,100% 0);opacity:0;transition:opacity .3s}
-.tearing .foil-inside{opacity:1}
-.rip-flash{position:absolute;inset:-40px;z-index:6;pointer-events:none;background:radial-gradient(circle,rgba(255,255,220,.9),transparent 60%);opacity:0}
-.tearing .rip-flash{animation:flash .7s ease-out}
+/* The sealed pack is deliberately inert: no click handler, no touch lock —
+   tapping it does nothing and vertical swipes scroll the page normally. */
+.sealed-wrap .pack-inner{touch-action:pan-y}
+.rip-flash{position:absolute;inset:-40px;z-index:6;pointer-events:none;background:radial-gradient(circle,rgba(255,255,220,.9),transparent 60%);opacity:0;animation:flash .4s ease-out}
 @keyframes flash{0%{opacity:0}25%{opacity:.9}100%{opacity:0}}
 .rip-hint{margin-top:18px;color:var(--muted);font-size:14px}
+.chase-line{margin-top:12px;color:var(--muted);font-size:13px}
+.chase-line .chase-view{color:var(--gold2);font-size:13px}
+.count-picker{display:flex;gap:8px;justify-content:center;margin-top:16px}
+.count-btn{background:#1d1d31;color:var(--ink);border:1px solid #34345a;border-radius:999px;padding:9px 16px;font-weight:700}
+.count-btn.active{background:var(--yellow);color:#111;border-color:var(--yellow)}
+.openall-toggle{display:flex;gap:8px;align-items:center;justify-content:center;margin-top:14px;color:var(--ink);font-weight:700;font-size:14px}
+.openall-toggle input{width:18px;height:18px;accent-color:var(--yellow)}
+.rip-btn{margin-top:16px;width:100%}
+/* ---- Slice stage: rainbow trail, pack never moves ---- */
+.slice-wrap{position:relative;width:100%;max-width:420px;text-align:center;touch-action:pan-y}
+.slice-packs{position:relative;display:flex;justify-content:center;align-items:flex-start}
+.slice-packs .pack-inner{width:var(--card-w);max-width:300px;flex:none;animation:none}
+.slice-wrap.multi .slice-packs .pack-inner{width:150px}
+.slice-wrap.multi .slice-packs .pack-inner + .pack-inner{margin-left:-78px}
+.slice-wrap.multi .slice-packs .pack-inner:nth-child(2){transform:rotate(-3deg) translateY(4px)}
+.slice-wrap.multi .slice-packs .pack-inner:nth-child(3){transform:rotate(2deg) translateY(-2px)}
+.slice-wrap.multi .slice-packs .pack-inner:nth-child(4){transform:rotate(-2deg) translateY(5px)}
+.slice-wrap.multi .slice-packs .pack-inner:nth-child(5){transform:rotate(3deg) translateY(2px)}
+.trail-canvas{position:absolute;inset:0;z-index:8;pointer-events:none}
+.slice-progress{height:8px;border-radius:999px;background:#23233a;overflow:hidden;margin-top:18px}
+.slice-progress-fill{height:100%;width:0;opacity:0;border-radius:999px;background:linear-gradient(90deg,#ff5f6d,#f5c542,#7ee787,#2a75bb,#b06bff)}
+.slice-hint{margin-top:12px;color:var(--muted);font-size:14px}
 .gold-aura{position:absolute;inset:-30px;z-index:1;border-radius:24px;pointer-events:none;
   background:radial-gradient(circle,rgba(245,197,66,.5),rgba(245,197,66,.12) 55%,transparent 75%);
   animation:auraPulse 1.1s ease-in-out infinite}
@@ -121,6 +140,19 @@ h2{font-size:26px}
 .summary .total{font-size:30px;font-weight:900;color:var(--gold2)}
 .summary-grid{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:14px}
 .summary-grid img{width:64px;border-radius:6px}
+.summary-thumb{background:none;border:0;padding:0;cursor:pointer}
+.summary-thumb img{width:64px;border-radius:6px;display:block}
+.summary-pack{margin-top:14px}
+.summary-pack b{color:var(--gold2)}
+.revealed-thumbs{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:8px}
+.thumb{background:none;border:0;padding:0;cursor:pointer}
+.thumb img{width:40px;border-radius:4px;display:block;border:1px solid #3a3a5c}
+/* ---- Card viewer ---- */
+.viewer-card{text-align:center}
+.viewer-card img{width:100%;max-width:320px;border-radius:12px;display:block;margin:0 auto}
+.viewer-meta{margin-top:12px;display:flex;flex-direction:column;gap:2px}
+.viewer-meta b{font-size:18px}
+.viewer-meta span{color:var(--muted);font-size:14px}
 .summary-actions{display:flex;gap:10px;justify-content:center;margin-top:16px;flex-wrap:wrap}
 .secondary-btn{background:#23233a;color:var(--ink);border:1px solid #3a3a5c;border-radius:999px;padding:11px 18px;font-weight:700}
 
@@ -130,8 +162,9 @@ h2{font-size:26px}
 .stat b{display:block;font-size:22px}
 .stat span{color:var(--muted);font-size:12px}
 .binder-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px}
+.binder-card{background:none;border:0;padding:0;text-align:left;cursor:pointer;color:inherit}
 .binder-card img{width:100%;border-radius:8px;display:block}
-.binder-card .bc-meta{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.35}
+.binder-card .bc-meta{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.35;display:block}
 .danger-btn{background:none;border:1px solid #7a2a2a;color:#ff9a9a;border-radius:999px;padding:9px 16px;font-weight:700}
 .binder-actions{margin-top:18px}
 .empty{color:var(--muted);padding:24px 0}
