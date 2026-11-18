@@ -75,16 +75,17 @@ async function loadSets() {
   const res = await fetch('/api/sets');
   const data = await res.json();
   sets = data.sets;
+  // Chase art is baked into /api/sets (verified hires URLs) and rendered
+  // inline by packCardHTML, so packs show their Pokémon on first paint.
+  // Previously this loop fired 23 separate /api/set calls, each loading a
+  // whole card pool from flaky pokemontcg.io (~10s+ each on fallback),
+  // leaving the shelf as blank dark packs for a long time.
+  for (const s of sets) {
+    if (s.chaseImage) chaseArt[s.id] = { name: s.chase, imageHires: s.chaseImage, image: s.chaseImage, price: null };
+  }
   renderFilters();
   renderShelf();
   $('#shelfLoading').hidden = true;
-  sets.forEach(async (s) => {
-    try {
-      const r = await fetch('/api/set/' + s.id);
-      const d = await r.json();
-      if (d.chase) { chaseArt[s.id] = d.chase; const el = document.querySelector(`[data-pack-art="${s.id}"]`); if (el) el.style.backgroundImage = `url("${d.chase.imageHires || d.chase.image}")`; }
-    } catch { /* shelf keeps its shimmer placeholder */ }
-  });
 }
 
 function renderFilters() {
@@ -97,9 +98,10 @@ function renderFilters() {
 
 function packCardHTML(s) {
   const chase = s.chase ? `Chase: <span class="chase">${escapeHtml(s.chase)}</span>` : '';
+  const artUrl = s.chaseImage || (chaseArt[s.id] && (chaseArt[s.id].imageHires || chaseArt[s.id].image)) || '';
   return `<button class="pack" data-set="${s.id}" type="button" aria-label="Open ${escapeHtml(s.name)}">
     <span class="pack-inner">
-      <span class="pack-art" data-pack-art="${s.id}"></span>
+      <span class="pack-art" data-pack-art="${s.id}"${artUrl ? ` style="background-image:url(&quot;${artUrl}&quot;)"` : ''}></span>
       <span class="pack-burst"></span><span class="pack-bend"></span><span class="pack-foil"></span>
       <span class="crimp top"></span><span class="crimp bottom"></span>
       <span class="pack-brand"><span class="poke">Pokémon</span><br><span class="tcg">TRADING CARD GAME</span></span>
@@ -169,6 +171,12 @@ function confetti(n = 90, gold = true) {
     setTimeout(() => d.remove(), 4200);
   }
 }
+let celebrateTimer = null;
+function hideCelebration() {
+  if (celebrateTimer) { clearTimeout(celebrateTimer); celebrateTimer = null; }
+  $('#celebration').hidden = true;
+  document.body.classList.remove('flash', 'shake');
+}
 function celebrate(kind, label) {
   const cel = $('#celebration');
   $('#celeBanner').textContent = kind === 'god' ? '✨ GOD PULL ✨' : '🌟 SUPER RARE 🌟';
@@ -179,7 +187,8 @@ function celebrate(kind, label) {
   arpeggio(kind === 'god');
   confetti(kind === 'god' ? 120 : 70, true);
   if (navigator.vibrate) navigator.vibrate(kind === 'god' ? [60, 40, 120] : [80]);
-  setTimeout(() => { cel.hidden = true; document.body.classList.remove('flash', 'shake'); }, 2600);
+  if (celebrateTimer) clearTimeout(celebrateTimer);
+  celebrateTimer = setTimeout(hideCelebration, 2600);
 }
 
 // ---------------- Navigation ----------------
@@ -674,6 +683,15 @@ $('#oddsClose').addEventListener('click', () => { $('#oddsModal').hidden = true;
 $('#oddsModal').addEventListener('click', (e) => { if (e.target.id === 'oddsModal') $('#oddsModal').hidden = true; });
 $('#viewerClose').addEventListener('click', closeViewer);
 $('#cardViewer').addEventListener('click', (e) => { if (e.target.id === 'cardViewer') closeViewer(); });
+// Celebration is tap-to-dismiss (it used to be pointer-events:none, so it
+// could never be closed by tapping it) and Escape closes any overlay.
+$('#celebration').addEventListener('click', hideCelebration);
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  hideCelebration();
+  $('#oddsModal').hidden = true;
+  closeViewer();
+});
 
 updateBinderCount();
 loadSets().catch(() => { $('#shelfLoading').textContent = 'Could not load packs — check your connection and refresh.'; });

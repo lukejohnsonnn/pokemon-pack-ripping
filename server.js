@@ -22,32 +22,32 @@ const TCGDEX = 'https://api.tcgdex.net/v2/en';
 // ---------------------------------------------------------------------------
 const SETS = [
   // 💎 Rare Packs (9) — the grail packs, chase cards among the most expensive
-  { id: 'base1',   name: 'Base Set',              series: 'Base',            category: 'rare',   era: 'vintage', packSize: 11, total: 102, releaseDate: '1999-01-09', chase: 'Charizard' },
-  { id: 'ecard3',  name: 'Skyridge',              series: 'E-Card',          category: 'rare',   era: 'ex',      packSize: 9,  total: 182, releaseDate: '2003-05-12', chase: 'Crystal Charizard' },
-  { id: 'ex15',    name: 'Dragon Frontiers',      series: 'EX',              category: 'rare',   era: 'ex',      packSize: 9,  total: 101, releaseDate: '2006-11-08', chase: 'Charizard ★ (Gold Star)' },
-  { id: 'ex8',     name: 'EX Deoxys',             series: 'EX',              category: 'rare',   era: 'ex',      packSize: 9,  total: 108, releaseDate: '2005-02-01', chase: 'Rayquaza ★ (Gold Star)' },
-  { id: 'neo4',    name: 'Neo Destiny',           series: 'Neo',             category: 'rare',   era: 'vintage', packSize: 11, total: 113, releaseDate: '2002-02-28', chase: 'Shining Charizard' },
-  { id: 'swsh7',   name: 'Evolving Skies',        series: 'Sword & Shield',  category: 'rare',   era: 'swsh',    packSize: 10, total: 237, releaseDate: '2021-08-27', chase: 'Umbreon VMAX (Moonbreon)' },
-  { id: 'sv8pt5',  name: 'Prismatic Evolutions',  series: 'Scarlet & Violet', category: 'rare',   era: 'modern',  packSize: 10, total: 180, releaseDate: '2025-01-17', chase: 'Umbreon ex (Special Illustration Rare)' },
-  { id: 'ecard2',  name: 'Aquapolis',             series: 'E-Card',          category: 'rare',   era: 'ex',      packSize: 9,  total: 182, releaseDate: '2003-01-15', chase: 'Crystal Lugia' },
-  { id: 'ex10',    name: 'Unseen Forces',         series: 'EX',              category: 'rare',   era: 'ex',      packSize: 9,  total: 145, releaseDate: '2005-08-22', chase: 'Lugia ex' },
+  { id: 'base1',   name: 'Base Set',              series: 'Base',            category: 'rare',   era: 'vintage', packSize: 11, total: 102, releaseDate: '1999-01-09', chase: 'Charizard' , chaseId: 'base1-4', chaseImage: 'https://images.pokemontcg.io/base1/4_hires.png' },
+  { id: 'ecard3',  name: 'Skyridge',              series: 'E-Card',          category: 'rare',   era: 'ex',      packSize: 9,  total: 182, releaseDate: '2003-05-12', chase: 'Crystal Charizard' , chaseId: 'ecard3-146', chaseImage: 'https://images.pokemontcg.io/ecard3/146_hires.png' },
+  { id: 'ex15',    name: 'Dragon Frontiers',      series: 'EX',              category: 'rare',   era: 'ex',      packSize: 9,  total: 101, releaseDate: '2006-11-08', chase: 'Charizard ★ (Gold Star)' , chaseId: 'ex15-100', chaseImage: 'https://images.pokemontcg.io/ex15/100_hires.png' },
+  { id: 'ex8',     name: 'EX Deoxys',             series: 'EX',              category: 'rare',   era: 'ex',      packSize: 9,  total: 108, releaseDate: '2005-02-01', chase: 'Rayquaza ★ (Gold Star)' , chaseId: 'ex8-107', chaseImage: 'https://images.pokemontcg.io/ex8/107_hires.png' },
+  { id: 'neo4',    name: 'Neo Destiny',           series: 'Neo',             category: 'rare',   era: 'vintage', packSize: 11, total: 113, releaseDate: '2002-02-28', chase: 'Shining Charizard' , chaseId: 'neo4-107', chaseImage: 'https://images.pokemontcg.io/neo4/107_hires.png' },
+  { id: 'swsh7',   name: 'Evolving Skies',        series: 'Sword & Shield',  category: 'rare',   era: 'swsh',    packSize: 10, total: 237, releaseDate: '2021-08-27', chase: 'Umbreon VMAX (Moonbreon)' , chaseId: 'swsh7-215', chaseImage: 'https://images.pokemontcg.io/swsh7/215_hires.png' },
+  { id: 'sv8pt5',  name: 'Prismatic Evolutions',  series: 'Scarlet & Violet', category: 'rare',   era: 'modern',  packSize: 10, total: 180, releaseDate: '2025-01-17', chase: 'Umbreon ex (Special Illustration Rare)' , chaseId: 'sv8pt5-161', chaseImage: 'https://images.pokemontcg.io/sv8pt5/161_hires.png' },
+  { id: 'ecard2',  name: 'Aquapolis',             series: 'E-Card',          category: 'rare',   era: 'ex',      packSize: 9,  total: 182, releaseDate: '2003-01-15', chase: 'Crystal Lugia' , chaseId: 'ecard2-149', chaseImage: 'https://images.pokemontcg.io/ecard2/149_hires.png' },
+  { id: 'ex10',    name: 'Unseen Forces',         series: 'EX',              category: 'rare',   era: 'ex',      packSize: 9,  total: 145, releaseDate: '2005-08-22', chase: 'Lugia ex' , chaseId: 'ex10-105', chaseImage: 'https://images.pokemontcg.io/ex10/105_hires.png' },
   // ⚡ Modern Packs (7)
-  { id: 'sv8',     name: 'Surging Sparks',        series: 'Scarlet & Violet', category: 'modern', era: 'modern',  packSize: 10, total: 252, releaseDate: '2024-11-08', chase: 'Pikachu ex (Special Illustration Rare)' },
-  { id: 'sv3pt5',  name: '151',                   series: 'Scarlet & Violet', category: 'modern', era: 'modern',  packSize: 10, total: 207, releaseDate: '2023-09-22', chase: 'Charizard ex (Special Illustration Rare)' },
-  { id: 'sv4pt5',  name: 'Paldean Fates',         series: 'Scarlet & Violet', category: 'modern', era: 'modern',  packSize: 10, total: 245, releaseDate: '2024-01-26', chase: 'Charizard ex (Shiny)' },
-  { id: 'sv9',     name: 'Journey Together',      series: 'Scarlet & Violet', category: 'modern', era: 'modern',  packSize: 10, total: 190, releaseDate: '2025-03-28', chase: "Lillie's Clefairy ex (Special Illustration Rare)" },
-  { id: 'me1',     name: 'Mega Evolution',        series: 'Mega Evolution',   category: 'modern', era: 'modern',  packSize: 10, total: 188, releaseDate: '2025-09-26', chase: 'Mega Lucario ex (Special Illustration Rare)' },
-  { id: 'sv10',    name: 'Destined Rivals',       series: 'Scarlet & Violet', category: 'modern', era: 'modern',  packSize: 10, total: 244, releaseDate: '2025-05-30', chase: "Team Rocket's Mewtwo ex" },
-  { id: 'sv6',     name: 'Twilight Masquerade',   series: 'Scarlet & Violet', category: 'modern', era: 'modern',  packSize: 10, total: 226, releaseDate: '2024-05-24', chase: 'Greninja ex (Special Illustration Rare)' },
+  { id: 'sv8',     name: 'Surging Sparks',        series: 'Scarlet & Violet', category: 'modern', era: 'modern',  packSize: 10, total: 252, releaseDate: '2024-11-08', chase: 'Pikachu ex (Special Illustration Rare)' , chaseId: 'sv8-238', chaseImage: 'https://images.pokemontcg.io/sv8/238_hires.png' },
+  { id: 'sv3pt5',  name: '151',                   series: 'Scarlet & Violet', category: 'modern', era: 'modern',  packSize: 10, total: 207, releaseDate: '2023-09-22', chase: 'Charizard ex (Special Illustration Rare)' , chaseId: 'sv3pt5-199', chaseImage: 'https://images.pokemontcg.io/sv3pt5/199_hires.png' },
+  { id: 'sv4pt5',  name: 'Paldean Fates',         series: 'Scarlet & Violet', category: 'modern', era: 'modern',  packSize: 10, total: 245, releaseDate: '2024-01-26', chase: 'Charizard ex (Special Illustration Rare)' , chaseId: 'sv4pt5-234', chaseImage: 'https://images.pokemontcg.io/sv4pt5/234_hires.png' },
+  { id: 'sv9',     name: 'Journey Together',      series: 'Scarlet & Violet', category: 'modern', era: 'modern',  packSize: 10, total: 190, releaseDate: '2025-03-28', chase: "Lillie's Clefairy ex (Special Illustration Rare)" , chaseId: 'sv9-184', chaseImage: 'https://images.pokemontcg.io/sv9/184_hires.png' },
+  { id: 'me1',     name: 'Mega Evolution',        series: 'Mega Evolution',   category: 'modern', era: 'modern',  packSize: 10, total: 188, releaseDate: '2025-09-26', chase: 'Mega Lucario ex (Special Illustration Rare)' , chaseId: 'me1-179', chaseImage: 'https://images.pokemontcg.io/me1/179_hires.png' },
+  { id: 'sv10',    name: 'Destined Rivals',       series: 'Scarlet & Violet', category: 'modern', era: 'modern',  packSize: 10, total: 244, releaseDate: '2025-05-30', chase: "Team Rocket's Mewtwo ex" , chaseId: 'sv10-231', chaseImage: 'https://images.pokemontcg.io/sv10/231_hires.png' },
+  { id: 'sv6',     name: 'Twilight Masquerade',   series: 'Scarlet & Violet', category: 'modern', era: 'modern',  packSize: 10, total: 226, releaseDate: '2024-05-24', chase: 'Greninja ex (Special Illustration Rare)' , chaseId: 'sv6-214', chaseImage: 'https://images.pokemontcg.io/sv6/214_hires.png' },
   // 🗡️ Sword & Shield Era (4)
-  { id: 'swsh12pt5', name: 'Crown Zenith',        series: 'Sword & Shield',  category: 'swsh',   era: 'swsh',    packSize: 10, total: 230, releaseDate: '2023-01-20', chase: 'Charizard (Galarian Gallery)' },
-  { id: 'swsh9',   name: 'Brilliant Stars',       series: 'Sword & Shield',  category: 'swsh',   era: 'swsh',    packSize: 10, total: 186, releaseDate: '2022-02-25', chase: 'Charizard V (Alternate Art)' },
-  { id: 'swsh11',  name: 'Lost Origin',           series: 'Sword & Shield',  category: 'swsh',   era: 'swsh',    packSize: 10, total: 217, releaseDate: '2022-09-09', chase: 'Giratina V (Alternate Art)' },
-  { id: 'sma',     name: 'Hidden Fates Shiny Vault', series: 'Sun & Moon',   category: 'swsh',   era: 'vault',   packSize: 10, total: 94,  releaseDate: '2019-08-23', chase: 'Shiny Charizard-GX' },
+  { id: 'swsh12pt5', name: 'Crown Zenith',        series: 'Sword & Shield',  category: 'swsh',   era: 'swsh',    packSize: 10, total: 230, releaseDate: '2023-01-20', chase: 'Radiant Charizard' , chaseId: 'swsh12pt5-20', chaseImage: 'https://images.pokemontcg.io/swsh12pt5/20_hires.png' },
+  { id: 'swsh9',   name: 'Brilliant Stars',       series: 'Sword & Shield',  category: 'swsh',   era: 'swsh',    packSize: 10, total: 186, releaseDate: '2022-02-25', chase: 'Charizard V (Alternate Art)' , chaseId: 'swsh9-154', chaseImage: 'https://images.pokemontcg.io/swsh9/154_hires.png' },
+  { id: 'swsh11',  name: 'Lost Origin',           series: 'Sword & Shield',  category: 'swsh',   era: 'swsh',    packSize: 10, total: 217, releaseDate: '2022-09-09', chase: 'Giratina V (Alternate Art)' , chaseId: 'swsh11-186', chaseImage: 'https://images.pokemontcg.io/swsh11/186_hires.png' },
+  { id: 'sma',     name: 'Hidden Fates Shiny Vault', series: 'Sun & Moon',   category: 'swsh',   era: 'vault',   packSize: 10, total: 94,  releaseDate: '2019-08-23', chase: 'Shiny Charizard-GX' , chaseId: 'sma-SV49', chaseImage: 'https://images.pokemontcg.io/sma/SV49_hires.png' },
   // 🏛️ Vintage Classics (3)
-  { id: 'neo1',    name: 'Neo Genesis',           series: 'Neo',             category: 'vintage', era: 'vintage', packSize: 11, total: 111, releaseDate: '2000-12-16', chase: 'Lugia (1st Edition Holo)' },
-  { id: 'neo3',    name: 'Neo Revelation',        series: 'Neo',             category: 'vintage', era: 'vintage', packSize: 11, total: 66,  releaseDate: '2001-09-21', chase: 'Shining Gyarados' },
-  { id: 'base5',   name: 'Team Rocket',           series: 'Base',            category: 'vintage', era: 'vintage', packSize: 11, total: 83,  releaseDate: '2000-04-24', chase: 'Dark Charizard' },
+  { id: 'neo1',    name: 'Neo Genesis',           series: 'Neo',             category: 'vintage', era: 'vintage', packSize: 11, total: 111, releaseDate: '2000-12-16', chase: 'Lugia (1st Edition Holo)' , chaseId: 'neo1-9', chaseImage: 'https://images.pokemontcg.io/neo1/9_hires.png' },
+  { id: 'neo3',    name: 'Neo Revelation',        series: 'Neo',             category: 'vintage', era: 'vintage', packSize: 11, total: 66,  releaseDate: '2001-09-21', chase: 'Shining Gyarados' , chaseId: 'neo3-65', chaseImage: 'https://images.pokemontcg.io/neo3/65_hires.png' },
+  { id: 'base5',   name: 'Team Rocket',           series: 'Base',            category: 'vintage', era: 'vintage', packSize: 11, total: 83,  releaseDate: '2000-04-24', chase: 'Dark Charizard' , chaseId: 'base5-4', chaseImage: 'https://images.pokemontcg.io/base5/4_hires.png' },
 ];
 const SET_BY_ID = Object.fromEntries(SETS.map((s) => [s.id, s]));
 
@@ -277,8 +277,19 @@ function ripPack(setId, pool, rng = Math.random) {
   return { set: meta, cards: withTiers, totalValue: Math.round(total * 100) / 100, best, hasSuper, hasGod, odds: ODDS[meta.era] };
 }
 
-function topChase(pool) {
-  return [...pool].sort((a, b) => (b.price || 0) - (a.price || 0))[0] || pool[0];
+function topChase(pool, setId) {
+  // Prefer the baked-in chase card for this set. The old code picked the
+  // highest-priced card, but on the TCGdex fallback every price is null,
+  // so it returned the first card in the pool (e.g. Alakazam for Base Set)
+  // and the pack face showed the wrong Pokémon.
+  const meta = SET_BY_ID[setId];
+  if (meta && meta.chaseId) {
+    const baked = pool.find((c) => c.id === meta.chaseId);
+    if (baked) return baked;
+  }
+  const priced = pool.filter((c) => (c.price || 0) > 0);
+  if (priced.length) return priced.sort((a, b) => (b.price || 0) - (a.price || 0))[0];
+  return pool[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -287,11 +298,15 @@ function topChase(pool) {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.get('/api/sets', async (req, res) => {
-  // Live totals/logos when the API answers, baked-in metadata otherwise.
-  const sets = await Promise.all(SETS.map(async (s) => {
-    const live = await loadSetMeta(s.id).catch(() => null);
-    return { ...s, total: (live && live.total) || s.total, logo: live && live.images ? live.images.logo : null, symbol: live && live.images ? live.images.symbol : null, live: !!live };
+app.get('/api/sets', (req, res) => {
+  // Baked-in metadata only — instant. Previously this awaited 23 live
+  // set-meta fetches to flaky pokemontcg.io (~8s+), so the shelf sat blank
+  // on first load. Logo/symbol URLs follow pokemontcg.io's stable pattern.
+  const sets = SETS.map((s) => ({
+    ...s,
+    logo: `https://images.pokemontcg.io/${s.id}/logo.png`,
+    symbol: `https://images.pokemontcg.io/${s.id}/symbol.png`,
+    live: true,
   }));
   res.json({ sets, categories: { rare: 9, modern: 7, swsh: 4, vintage: 3 }, total: SETS.length });
 });
@@ -301,7 +316,7 @@ app.get('/api/set/:id', async (req, res) => {
   if (!SET_BY_ID[setId]) return res.status(404).json({ error: 'unknown set' });
   try {
     const { cards, source, fetchedAt } = await loadPool(setId);
-    const chase = topChase(cards);
+    const chase = topChase(cards, setId);
     res.json({ set: SET_BY_ID[setId], source, fetchedAt, cards: cards.length, chase, cardsUrl: null });
   } catch (e) { res.status(502).json({ error: String(e.message) }); }
 });

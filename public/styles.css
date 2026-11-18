@@ -1,3 +1,8 @@
+/* CRITICAL: the UA stylesheet's [hidden]{display:none} loses to any author
+   display rule (.modal{display:flex}, .celebration{display:flex},
+   .value-pill{display:inline-block}, .rip-controls{display:flex} ...),
+   so hidden overlays were visible on first load. This must stay first. */
+[hidden]{display:none !important}
 :root{
   --bg:#0f0f1a; --panel:#171726; --ink:#f5f2ea; --muted:#9a97ad;
   --gold:#f5c542; --gold2:#ffdf7e; --red:#e3350d; --blue:#2a75bb; --yellow:#ffcb05;
@@ -40,7 +45,10 @@ h2{font-size:26px}
 .pack:nth-child(2n) .pack-inner{animation-delay:-2.4s}
 .pack:nth-child(3n) .pack-inner{animation-delay:-4.1s}
 @keyframes packSway{0%,100%{transform:perspective(700px) rotateY(-3deg) rotateX(1deg)}50%{transform:perspective(700px) rotateY(3deg) rotateX(-1deg)}}
-.pack-art{position:absolute;inset:0;background-size:cover;background-position:50% 24%;transform:scale(1.4);transform-origin:50% 24%;filter:saturate(1.05)}
+.pack-art{position:absolute;inset:0;background-size:cover;background-position:50% 24%;transform:scale(1.4);transform-origin:50% 24%;filter:saturate(1.05);
+  /* Never a flat black void while / if the chase art hasn't loaded: a
+     foil-coloured gradient sits behind the art. */
+  background-color:#2a2a55;background-image:linear-gradient(160deg,#3a2a6e,#1c3a6e 45%,#7a2a3a)}
 .pack-art::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.28),transparent 30%,transparent 62%,rgba(0,0,0,.55))}
 .pack-bend{position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.5),transparent 18%,rgba(255,255,255,.10) 46%,transparent 62%,rgba(0,0,0,.5));pointer-events:none}
 .pack-burst{position:absolute;inset:auto 0 26% 0;height:44%;background:radial-gradient(120% 100% at 50% 100%,rgba(255,255,255,.22),transparent 60%);pointer-events:none}
@@ -178,7 +186,8 @@ h2{font-size:26px}
 .odds-row{padding:10px 0;border-bottom:1px solid #2a2a48}
 .odds-row b{display:block;margin-bottom:2px}
 .odds-row span{color:var(--muted);font-size:13px;line-height:1.45;display:block}
-.celebration{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;text-align:center;padding:20px}
+.celebration{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:auto;cursor:pointer;text-align:center;padding:20px;background:rgba(10,10,20,.35)}
+.cele-hint{margin-top:18px;font-size:13px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
 .cele-banner{font-size:clamp(44px,13vw,92px);font-weight:900;letter-spacing:.04em;color:var(--gold2);
   text-shadow:0 0 30px rgba(245,197,66,.9),0 4px 0 #8a6400;animation:bannerPop .6s cubic-bezier(.2,1.6,.4,1)}
 @keyframes bannerPop{0%{transform:scale(.4);opacity:0}100%{transform:scale(1);opacity:1}}
