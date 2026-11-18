@@ -81,7 +81,11 @@ async function loadSets() {
   // whole card pool from flaky pokemontcg.io (~10s+ each on fallback),
   // leaving the shelf as blank dark packs for a long time.
   for (const s of sets) {
-    if (s.chaseImage) chaseArt[s.id] = { name: s.chase, imageHires: s.chaseImage, image: s.chaseImage, price: null };
+    // chasePrice comes from the server warmup cache when ready; it is also
+    // filled in from /api/set/:id when a pack is opened (see openPack).
+    // Art is served through the same-origin /api/img proxy; the shelf uses
+    // the small variant, the sealed pack / viewer use hires.
+    if (s.chaseImage) chaseArt[s.id] = { name: s.chase, imageHires: s.chaseImage, image: s.chaseImageSmall || s.chaseImage, imageSmall: s.chaseImageSmall || s.chaseImage, price: s.chasePrice ?? null };
   }
   renderFilters();
   renderShelf();
@@ -98,7 +102,7 @@ function renderFilters() {
 
 function packCardHTML(s) {
   const chase = s.chase ? `Chase: <span class="chase">${escapeHtml(s.chase)}</span>` : '';
-  const artUrl = s.chaseImage || (chaseArt[s.id] && (chaseArt[s.id].imageHires || chaseArt[s.id].image)) || '';
+  const artUrl = s.chaseImageSmall || s.chaseImage || (chaseArt[s.id] && (chaseArt[s.id].imageSmall || chaseArt[s.id].imageHires || chaseArt[s.id].image)) || '';
   return `<button class="pack" data-set="${s.id}" type="button" aria-label="Open ${escapeHtml(s.name)}">
     <span class="pack-inner">
       <span class="pack-art" data-pack-art="${s.id}"${artUrl ? ` style="background-image:url(&quot;${artUrl}&quot;)"` : ''}></span>
@@ -123,7 +127,7 @@ function renderShelf() {
   grid.querySelectorAll('.pack').forEach((el) => el.addEventListener('click', () => openPack(el.dataset.set)));
   for (const [id, c] of Object.entries(chaseArt)) {
     const el = grid.querySelector(`[data-pack-art="${id}"]`);
-    if (el) el.style.backgroundImage = `url("${c.imageHires || c.image}")`;
+    if (el) el.style.backgroundImage = `url("${c.imageSmall || c.imageHires || c.image}")`;
   }
 }
 
@@ -241,9 +245,24 @@ function openPack(setId) {
   if (art) { const a = inner.querySelector('.pack-art'); if (a) a.style.backgroundImage = `url("${art.imageHires || art.image}")`; }
   // Chase card is tappable to view it.
   const chaseLine = $('#chaseLine');
-  if (art) {
+  const renderChaseLine = () => {
+    if (!art) return;
     chaseLine.innerHTML = `Chase: <button class="link-btn chase-view" type="button">${escapeHtml(art.name)} · ${money(art.price)} 🔍</button>`;
     chaseLine.querySelector('.chase-view').addEventListener('click', () => openViewer(art));
+  };
+  renderChaseLine();
+  // The chase price is a live TCGplayer price. If the server warmup hadn't
+  // filled it in yet when the shelf loaded, fetch it now from /api/set/:id
+  // (pool is pre-warmed, so this is fast) instead of showing $— forever.
+  if (art && art.price == null) {
+    fetch('/api/set/' + setId).then((r) => r.json()).then((d) => {
+      if (d.chase && d.chase.price != null && currentSet && currentSet.id === setId) {
+        art.price = d.chase.price;
+        art.imageHires = d.chase.imageHires || art.imageHires;
+        art.image = d.chase.image || art.image;
+        renderChaseLine();
+      }
+    }).catch(() => { /* price stays $—; the pack still rips */ });
   }
   stage.querySelectorAll('.count-btn').forEach((b) => b.addEventListener('click', () => {
     packCount = Number(b.dataset.count);
@@ -376,6 +395,11 @@ function attachSlice(wrap, data) {
 
   wrap.addEventListener('pointerdown', (e) => {
     if (opened) return;
+    // The "Open it" button lives inside this wrap. The old code captured
+    // the pointer on ANY pointerdown — including on the button — which
+    // retargeted the gesture to the wrap and swallowed the button's click,
+    // so "Open it" did nothing. Buttons never start a slice.
+    if (e.target.closest('button')) return;
     slicing = true; startX = e.clientX; lastPt = null;
     try { wrap.setPointerCapture(e.pointerId); } catch { /* noop */ }
     drawTrail(e.clientX, e.clientY);
@@ -399,21 +423,34 @@ function attachSlice(wrap, data) {
   }
   wrap.addEventListener('pointerup', endSlice);
   wrap.addEventListener('pointercancel', endSlice);
-  wrap.querySelector('#sliceOpenBtn').addEventListener('click', () => completeSlice());
+  const openBtn = wrap.querySelector('#sliceOpenBtn');
+  // Belt and braces: the button must never start a slice gesture, and its
+  // click must reach completeSlice even if a pointerdown raced it.
+  openBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+  openBtn.addEventListener('click', (e) => { e.stopPropagation(); completeSlice(); });
 }
 
 // ---------------- Reveal: fan, tap/swipe, ends flat ----------------
+// Single source of truth for the counter. The old code updated it in
+// showFan/advanceCard only — the swipe-fling path incremented ripIndex
+// directly and never touched it, so it stuck at e.g. "11 cards left".
+function updateCardsLeft() {
+  if (!rip) return;
+  const totalCards = packs.reduce((s, p) => s + p.cards.length, 0);
+  const done = packs.slice(0, packIdx).reduce((s, p) => s + p.cards.length, 0) + ripIndex;
+  const left = totalCards - done;
+  $('#cardsLeft').textContent = packs.length > 1
+    ? `Pack ${packIdx + 1} of ${packs.length} · ${left} card${left === 1 ? '' : 's'} left`
+    : `${left} card${left === 1 ? '' : 's'} left`;
+}
+
 function showFan() {
   const stage = $('#ripStage');
   $('#ripControls').hidden = false;
   $('#valuePill').hidden = false;
   $('#viewCardBtn').hidden = true;
   $('#valueSoFar').textContent = fmt(revealedValue);
-  const totalCards = packs.reduce((s, p) => s + p.cards.length, 0);
-  const done = packs.slice(0, packIdx).reduce((s, p) => s + p.cards.length, 0) + ripIndex;
-  $('#cardsLeft').textContent = packs.length > 1
-    ? `Pack ${packIdx + 1} of ${packs.length} · ${totalCards - done} cards left`
-    : `${rip.cards.length - ripIndex} cards left`;
+  updateCardsLeft();
   renderThumbs();
   const fan = document.createElement('div');
   fan.className = 'fan';
@@ -482,12 +519,7 @@ function advanceCard() {
   el.style.opacity = '0';
   setTimeout(() => el.remove(), 480);
   ripIndex += 1;
-  const left = rip.cards.length - ripIndex;
-  const totalCards = packs.reduce((s, p) => s + p.cards.length, 0);
-  const done = packs.slice(0, packIdx).reduce((s, p) => s + p.cards.length, 0) + ripIndex;
-  $('#cardsLeft').textContent = packs.length > 1
-    ? `Pack ${packIdx + 1} of ${packs.length} · ${totalCards - done} cards left`
-    : (left > 0 ? `${left} card${left === 1 ? '' : 's'} left` : '');
+  updateCardsLeft();
   $('#viewCardBtn').hidden = true;
   const next = activeCardEl();
   if (next) {
@@ -575,7 +607,7 @@ function attachReveal(fan) {
       el.style.opacity = '0';
       const flipped = el.classList.contains('flipped');
       setTimeout(() => { el.remove(); }, 320);
-      if (flipped) { ripIndex += 1; $('#viewCardBtn').hidden = true; if (!activeCardEl()) { if (packIdx + 1 < packs.length) { packIdx += 1; rip = packs[packIdx]; ripIndex = 0; setTimeout(showFan, 350); } else setTimeout(showSummary, 350); } else { const n = activeCardEl(); if (n) n.style.transform = 'translateY(0) rotate(0deg) scale(1)'; } }
+      if (flipped) { ripIndex += 1; updateCardsLeft(); $('#viewCardBtn').hidden = true; if (!activeCardEl()) { if (packIdx + 1 < packs.length) { packIdx += 1; rip = packs[packIdx]; ripIndex = 0; setTimeout(showFan, 350); } else setTimeout(showSummary, 350); } else { const n = activeCardEl(); if (n) n.style.transform = 'translateY(0) rotate(0deg) scale(1)'; } }
       else { revealActive(); setTimeout(() => { if (activeCardEl()) advanceCard(); }, 650); }
     } else {
       // Spring snap-back, landing flat.

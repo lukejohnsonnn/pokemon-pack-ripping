@@ -91,24 +91,65 @@ async function fetchJsonRetry(url, attempts = 3) {
   throw lastErr;
 }
 
+// ---------------------------------------------------------------------------
+// Image proxy — art must load even if images.pokemontcg.io is slow, blocked,
+// or its cert isn't trusted by the client (a real Firefox in this sandbox
+// rejects it with SEC_ERROR_UNKNOWN_ISSUER, so pack faces rendered as blank
+// gradients). All card art is served same-origin through /api/img, cached
+// in memory, with the small (245px) variant used on the shelf.
+// ---------------------------------------------------------------------------
+const IMG_HOSTS = new Set(['images.pokemontcg.io', 'images.tcgdex.net']);
+const imgCache = new Map(); // url -> { at, buf, type }
+const IMG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+function proxyUrl(u) {
+  if (!u) return u;
+  return '/api/img?u=' + encodeURIComponent(u);
+}
+
+app.get('/api/img', async (req, res) => {
+  let u;
+  try { u = new URL(String(req.query.u || '')); } catch { return res.status(400).send('bad url'); }
+  if (!IMG_HOSTS.has(u.hostname) || !/\.(png|jpg|jpeg|webp)$/i.test(u.pathname)) return res.status(400).send('bad host');
+  const key = u.href;
+  const hit = imgCache.get(key);
+  if (hit && Date.now() - hit.at < IMG_CACHE_TTL_MS) {
+    res.set('Content-Type', hit.type); res.set('Cache-Control', 'public, max-age=86400');
+    return res.send(hit.buf);
+  }
+  try {
+    const r = await fetch(key, { headers: { 'User-Agent': 'pokemon-pack-ripping/1.0' }, signal: AbortSignal.timeout(12000) });
+    if (!r.ok) return res.status(r.status).send('upstream error');
+    const buf = Buffer.from(await r.arrayBuffer());
+    const type = r.headers.get('content-type') || 'image/png';
+    if (imgCache.size > 300) imgCache.clear();
+    imgCache.set(key, { at: Date.now(), buf, type });
+    res.set('Content-Type', type); res.set('Cache-Control', 'public, max-age=86400');
+    res.send(buf);
+  } catch (e) { res.status(502).send('image fetch failed'); }
+});
+
 function priceOf(card) {
-  // Prefer TCGplayer market, then Cardmarket trend, then TCGplayer mid.
-  // (TCGplayer "mid" on thin vintage markets can be a single fantasy listing,
-  // so market prices are checked first.)
+  // Order matters: TCGplayer market first, then Cardmarket trend/average,
+  // and TCGplayer "mid" ONLY as a last resort. "Mid" on thin vintage
+  // markets can be a single fantasy listing — e.g. Gold Star Charizard
+  // ex15-100 has market: null and mid $27,500, while Cardmarket trend is
+  // ~$838. The old order checked mid before Cardmarket and returned $27,500.
   const tp = card.tcgplayer && card.tcgplayer.prices;
   if (tp) {
     for (const key of ['holofoil', 'reverseHolofoil', 'normal', '1stEditionHolofoil', 'unlimitedHolofoil']) {
       const p = tp[key];
       if (p && typeof p.market === 'number') return p.market;
     }
+  }
+  const cm = card.cardmarket && card.cardmarket.prices;
+  if (cm && typeof cm.trendPrice === 'number') return cm.trendPrice;
+  if (cm && typeof cm.averageSellPrice === 'number') return cm.averageSellPrice;
+  if (tp) {
     for (const key of ['holofoil', 'reverseHolofoil', 'normal', '1stEditionHolofoil', 'unlimitedHolofoil']) {
       const p = tp[key];
       if (p && typeof p.mid === 'number') return p.mid;
     }
   }
-  const cm = card.cardmarket && card.cardmarket.prices;
-  if (cm && typeof cm.trendPrice === 'number') return cm.trendPrice;
-  if (cm && typeof cm.averageSellPrice === 'number') return cm.averageSellPrice;
   return null;
 }
 
@@ -121,7 +162,7 @@ function normalizeCard(c) {
     id: c.id, name: c.name, rarity, price,
     number: c.number, supertype: c.supertype || 'Pokémon',
     subtypes: c.subtypes || [], types: c.types || [],
-    image: imgSmall, imageHires: imgLarge,
+    image: proxyUrl(imgSmall), imageHires: proxyUrl(imgLarge),
     isReverse: !!(c.tcgplayer && c.tcgplayer.prices && c.tcgplayer.prices.reverseHolofoil),
   };
 }
@@ -167,7 +208,7 @@ async function loadPool(setId) {
           id: c.id, name: c.name, rarity: d.rarity || 'Common', price: null,
           number: c.localId, supertype: 'Pokémon', subtypes: d.subtypes || [], types: d.types || [],
           // TCGdex image field is a bare path — the real file is <path>/high.png
-          image: c.image + '/high.png', imageHires: c.image + '/high.png',
+          image: proxyUrl(c.image + '/high.png'), imageHires: proxyUrl(c.image + '/high.png'),
           isReverse: !!(d.variants && d.variants.reverse),
         };
       });
@@ -298,15 +339,82 @@ function topChase(pool, setId) {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Chase prices: live TCGplayer price of each set's baked-in chase card,
+// filled in by the warmup below (pool -> topChase). /api/sets stays instant
+// and never waits for this — it returns the cached price if known, else null,
+// and the client fills the detail chase line from /api/set/:id.
+const chasePrices = new Map(); // setId -> price (number only; nulls are NOT cached)
+const chasePriceRetryAt = new Map(); // setId -> timestamp after which a retry is allowed
+async function getChasePrice(setId) {
+  if (chasePrices.has(setId)) return chasePrices.get(setId);
+  // pokemontcg.io is flaky (intermittent empty 500s). A null here is usually
+  // a transient failure, NOT "this card has no price" — so never cache nulls:
+  // throttle retries to once a minute instead, so a later call can succeed.
+  if ((chasePriceRetryAt.get(setId) || 0) > Date.now()) return null;
+  chasePriceRetryAt.set(setId, Date.now() + 60 * 1000);
+  const meta = SET_BY_ID[setId];
+  // First try the single chase card directly from pokemontcg.io. This is
+  // the price that matters, and it works even when the whole pool fell back
+  // to TCGdex (where every price is null, so the pool route returns $—).
+  if (meta && meta.chaseId) {
+    try {
+      const data = await fetchJsonRetry(`${PTCG}/cards/${meta.chaseId}`, 3);
+      const price = data && data.data ? priceOf(data.data) : null;
+      if (price != null) { chasePrices.set(setId, price); return price; }
+    } catch { /* fall through to the pool route */ }
+  }
+  try {
+    const { cards } = await loadPool(setId);
+    const chase = topChase(cards, setId);
+    const price = chase ? (chase.price ?? null) : null;
+    if (price != null) chasePrices.set(setId, price);
+    return price;
+  } catch { return null; }
+}
+
+// Pre-warm on boot: load every pool in the background (concurrency 4) so a
+// rip after a cold Render start doesn't synchronously fetch a whole pool
+// (~8s on the flaky upstream). Never blocks listen() or /api/sets.
+let warmupDone = false;
+async function warmup() {
+  const ids = SETS.map((s) => s.id);
+  for (let i = 0; i < ids.length; i += 4) {
+    await Promise.all(ids.slice(i, i + 4).map(async (id) => {
+      // Load the pool AND the chase price: getChasePrice alone short-circuits
+      // on the single-card fetch and would leave most pools uncached, so a
+      // first rip would still synchronously fetch a whole pool (~8s).
+      try { await Promise.all([loadPool(id), getChasePrice(id)]); } catch { /* warmup is best-effort */ }
+    }));
+  }
+  warmupDone = true;
+  console.log(`warmup done — ${cache.size} pools cached, ${chasePrices.size}/${SETS.length} chase prices`);
+}
+setImmediate(() => { warmup().catch(() => {}); });
+// Re-warm any chase prices that were still missing (transient upstream
+// failures) every 5 minutes, so $— fills in on its own over time.
+setInterval(() => {
+  const missing = SETS.filter((s) => !chasePrices.has(s.id)).map((s) => s.id);
+  if (missing.length) Promise.all(missing.map((id) => getChasePrice(id).catch(() => null)));
+}, 5 * 60 * 1000);
+
 app.get('/api/sets', (req, res) => {
   // Baked-in metadata only — instant. Previously this awaited 23 live
   // set-meta fetches to flaky pokemontcg.io (~8s+), so the shelf sat blank
   // on first load. Logo/symbol URLs follow pokemontcg.io's stable pattern.
+  // chasePrice comes from the warmup cache when ready; the client also
+  // fills it from /api/set/:id on the detail view.
   const sets = SETS.map((s) => ({
     ...s,
+    chasePrice: chasePrices.has(s.id) ? chasePrices.get(s.id) : null,
+    // Art is served through the same-origin /api/img proxy (see above), and
+    // the shelf uses the small 245px variant — 23 hires images (~800KB each)
+    // made the shelf painfully slow and blank while loading.
+    chaseImage: proxyUrl(s.chaseImage),
+    chaseImageSmall: proxyUrl(s.chaseImage.replace('_hires.png', '.png')),
     logo: `https://images.pokemontcg.io/${s.id}/logo.png`,
     symbol: `https://images.pokemontcg.io/${s.id}/symbol.png`,
     live: true,
+    warmed: warmupDone,
   }));
   res.json({ sets, categories: { rare: 9, modern: 7, swsh: 4, vintage: 3 }, total: SETS.length });
 });
@@ -316,7 +424,13 @@ app.get('/api/set/:id', async (req, res) => {
   if (!SET_BY_ID[setId]) return res.status(404).json({ error: 'unknown set' });
   try {
     const { cards, source, fetchedAt } = await loadPool(setId);
-    const chase = topChase(cards, setId);
+    let chase = topChase(cards, setId);
+    // Pools from the TCGdex fallback carry no prices, so chase.price is
+    // null there — fill it from the single-card price lookup instead.
+    if (chase && chase.price == null) {
+      const price = await getChasePrice(setId);
+      if (price != null) chase = { ...chase, price };
+    }
     res.json({ set: SET_BY_ID[setId], source, fetchedAt, cards: cards.length, chase, cardsUrl: null });
   } catch (e) { res.status(502).json({ error: String(e.message) }); }
 });
@@ -364,7 +478,7 @@ app.post('/api/rip/:id', async (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, sets: SETS.length, categories: { rare: 9, modern: 7, swsh: 4, vintage: 3 }, fetchStatus, uptimeSec: Math.round(process.uptime()) });
+  res.json({ ok: true, sets: SETS.length, categories: { rare: 9, modern: 7, swsh: 4, vintage: 3 }, fetchStatus, warmupDone, poolsCached: cache.size, chasePricesKnown: [...chasePrices.values()].filter((p) => p != null).length, uptimeSec: Math.round(process.uptime()) });
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));

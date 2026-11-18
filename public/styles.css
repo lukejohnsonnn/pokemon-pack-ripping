@@ -34,18 +34,19 @@ h2{font-size:26px}
 .filter-chip .n{opacity:.65;font-weight:600;margin-left:4px}
 
 /* ---- Shelf grid ---- */
-.shelf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px;margin-top:6px}
+/* Grid tiles must be true block boxes: .pack/.pack-inner were <span>/<button>
+   defaults, so the inline pack-inner ignored width/aspect-ratio, grid rows
+   collapsed, and tiles + their meta text overlapped each other and the
+   footer. The old packSway perspective-rotateY animation also spilled each
+   tile ~9px into its neighbours mid-swing. Both are removed. */
+.shelf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px;margin-top:6px;align-items:start}
 @media (min-width:760px){.shelf-grid{grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}}
 
 /* ---- Foil booster pack ---- */
-.pack{position:relative;border:0;background:none;padding:0;text-align:left;width:100%;transform:translateZ(0)}
-.pack-inner{position:relative;width:100%;aspect-ratio:5/8.6;border-radius:10px;overflow:hidden;background:#111;
-  box-shadow:0 10px 24px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.08);
-  animation:packSway 7s ease-in-out infinite;transform-style:preserve-3d}
-.pack:nth-child(2n) .pack-inner{animation-delay:-2.4s}
-.pack:nth-child(3n) .pack-inner{animation-delay:-4.1s}
-@keyframes packSway{0%,100%{transform:perspective(700px) rotateY(-3deg) rotateX(1deg)}50%{transform:perspective(700px) rotateY(3deg) rotateX(-1deg)}}
-.pack-art{position:absolute;inset:0;background-size:cover;background-position:50% 24%;transform:scale(1.4);transform-origin:50% 24%;filter:saturate(1.05);
+.pack{position:relative;display:block;border:0;background:none;padding:0;text-align:left;width:100%;min-width:0;transform:translateZ(0)}
+.pack-inner{position:relative;display:block;width:100%;aspect-ratio:5/8.6;border-radius:10px;overflow:hidden;background:#111;
+  box-shadow:0 10px 24px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.08)}
+.pack-art{position:absolute;display:block;inset:0;background-size:cover;background-position:50% 24%;transform:scale(1.4);transform-origin:50% 24%;filter:saturate(1.05);
   /* Never a flat black void while / if the chase art hasn't loaded: a
      foil-coloured gradient sits behind the art. */
   background-color:#2a2a55;background-image:linear-gradient(160deg,#3a2a6e,#1c3a6e 45%,#7a2a3a)}
@@ -66,15 +67,13 @@ h2{font-size:26px}
 .pack-brand .poke{font-weight:900;font-style:italic;color:var(--yellow);font-size:21px;letter-spacing:.02em;-webkit-text-stroke:.6px #2a75bb;text-stroke:.6px #2a75bb}
 .pack-brand .tcg{display:inline-block;background:var(--red);color:#fff;font-size:9px;font-weight:800;letter-spacing:.14em;padding:3px 8px;border-radius:3px;margin-top:3px}
 .age-badge{position:absolute;top:64px;right:8px;z-index:2;width:26px;height:26px;border-radius:50%;background:#fff;color:#111;border:2px solid #111;font-size:11px;font-weight:900;display:flex;align-items:center;justify-content:center;transform:rotate(10deg)}
-.pack-name{position:absolute;left:0;right:0;bottom:34px;z-index:2;text-align:center;font-weight:900;font-size:15px;line-height:1.1;text-transform:uppercase;text-shadow:0 2px 8px rgba(0,0,0,.85);padding:0 8px;transform:rotate(-2deg)}
-.pack-strip{position:absolute;left:0;right:0;bottom:0;height:28px;z-index:2;background:var(--red);display:flex;align-items:center;gap:6px;padding:0 8px;font-size:10px;font-weight:800;color:#fff}
-.pack-strip .count{width:18px;height:18px;border-radius:50%;border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:10px;flex:none}
+.pack-name{position:absolute;left:0;right:0;bottom:34px;z-index:2;text-align:center;font-weight:900;font-size:15px;line-height:1.1;text-transform:uppercase;text-shadow:0 2px 8px rgba(0,0,0,.85);padding:3px 8px;transform:rotate(-2deg);background:linear-gradient(180deg,transparent,rgba(0,0,0,.55) 35%,rgba(0,0,0,.55) 65%,transparent)}
+.pack-strip{position:absolute;left:0;right:0;bottom:0;height:28px;z-index:2;background:var(--red);display:flex;align-items:center;gap:4px;padding:0 6px;font-size:9px;font-weight:800;color:#fff;white-space:nowrap;overflow:hidden}
+.pack-strip .count{width:16px;height:16px;border-radius:50%;border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:9px;flex:none}
 .rare-badge{position:absolute;top:64px;left:8px;z-index:4;background:linear-gradient(135deg,#ffe27a,#c9960e);color:#3a2a00;font-size:10px;font-weight:900;padding:4px 7px;border-radius:999px;box-shadow:0 2px 8px rgba(0,0,0,.5)}
-.pack-meta{margin-top:8px;font-size:12px;color:var(--muted);line-height:1.4}
+.pack-meta{display:block;margin-top:8px;font-size:12px;color:var(--muted);line-height:1.4;overflow-wrap:break-word;min-width:0}
 .pack-meta b{color:var(--ink)}
 .pack-meta .chase{color:var(--gold2)}
-.pack:hover .pack-inner{transform:perspective(700px) rotateY(0) scale(1.03)}
-.pack:active .pack-inner{transform:scale(.97)}
 
 /* ---- Rip view ---- */
 .back-btn{background:none;border:1px solid #3a3a5c;color:var(--ink);border-radius:999px;padding:8px 14px;font-weight:700;margin-bottom:12px}
