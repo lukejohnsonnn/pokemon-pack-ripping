@@ -98,7 +98,7 @@ async function fetchJsonRetry(url, attempts = 3) {
 // gradients). All card art is served same-origin through /api/img, cached
 // in memory, with the small (245px) variant used on the shelf.
 // ---------------------------------------------------------------------------
-const IMG_HOSTS = new Set(['images.pokemontcg.io', 'images.tcgdex.net']);
+const IMG_HOSTS = new Set(['images.pokemontcg.io', 'images.tcgdex.net', 'assets.tcgdex.net']);
 const imgCache = new Map(); // url -> { at, buf, type }
 const IMG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 function proxyUrl(u) {
@@ -106,26 +106,32 @@ function proxyUrl(u) {
   return '/api/img?u=' + encodeURIComponent(u);
 }
 
+// Single place that fetches + caches an image (used by /api/img and by the
+// boot warmup below). Returns { buf, type } or null on failure.
+async function fetchAndCacheImage(rawUrl) {
+  const hit = imgCache.get(rawUrl);
+  if (hit && Date.now() - hit.at < IMG_CACHE_TTL_MS) return hit;
+  const r = await fetch(rawUrl, { headers: { 'User-Agent': 'pokemon-pack-ripping/1.0' }, signal: AbortSignal.timeout(15000) });
+  if (!r.ok) return null;
+  const buf = Buffer.from(await r.arrayBuffer());
+  const type = r.headers.get('content-type') || 'image/png';
+  if (imgCache.size > 400) imgCache.clear();
+  const entry = { at: Date.now(), buf, type };
+  imgCache.set(rawUrl, entry);
+  return entry;
+}
+
 app.get('/api/img', async (req, res) => {
   let u;
   try { u = new URL(String(req.query.u || '')); } catch { return res.status(400).send('bad url'); }
+  // NOTE: assets.tcgdex.net MUST be allowlisted — TCGdex fallback pools
+  // serve their art from assets.tcgdex.net, and without it every card image
+  // in a fallback rip 400s, so flipped cards show no Pokémon picture.
   if (!IMG_HOSTS.has(u.hostname) || !/\.(png|jpg|jpeg|webp)$/i.test(u.pathname)) return res.status(400).send('bad host');
-  const key = u.href;
-  const hit = imgCache.get(key);
-  if (hit && Date.now() - hit.at < IMG_CACHE_TTL_MS) {
-    res.set('Content-Type', hit.type); res.set('Cache-Control', 'public, max-age=86400');
-    return res.send(hit.buf);
-  }
-  try {
-    const r = await fetch(key, { headers: { 'User-Agent': 'pokemon-pack-ripping/1.0' }, signal: AbortSignal.timeout(12000) });
-    if (!r.ok) return res.status(r.status).send('upstream error');
-    const buf = Buffer.from(await r.arrayBuffer());
-    const type = r.headers.get('content-type') || 'image/png';
-    if (imgCache.size > 300) imgCache.clear();
-    imgCache.set(key, { at: Date.now(), buf, type });
-    res.set('Content-Type', type); res.set('Cache-Control', 'public, max-age=86400');
-    res.send(buf);
-  } catch (e) { res.status(502).send('image fetch failed'); }
+  const hit = await fetchAndCacheImage(u.href).catch(() => null);
+  if (!hit) return res.status(502).send('image fetch failed');
+  res.set('Content-Type', hit.type); res.set('Cache-Control', 'public, max-age=86400');
+  res.send(hit.buf);
 });
 
 function priceOf(card) {
@@ -318,6 +324,15 @@ function ripPack(setId, pool, rng = Math.random) {
   return { set: meta, cards: withTiers, totalValue: Math.round(total * 100) / 100, best, hasSuper, hasGod, odds: ODDS[meta.era] };
 }
 
+function normCardId(id) {
+  // TCGdex pads modern set IDs (sv8-238 -> sv08-238, sv3pt5 -> sv03.5),
+  // pokemontcg.io doesn't. Compare normalised so the baked-in chase card
+  // is found in a TCGdex fallback pool too — without this, /api/set/sv8
+  // returned the first pool card (Exeggcute) as the "chase".
+  const [setPart, ...rest] = String(id || '').split('-');
+  return [setPart.replace(/0+(\d)/g, '$1'), ...rest].join('-');
+}
+
 function topChase(pool, setId) {
   // Prefer the baked-in chase card for this set. The old code picked the
   // highest-priced card, but on the TCGdex fallback every price is null,
@@ -325,7 +340,7 @@ function topChase(pool, setId) {
   // and the pack face showed the wrong Pokémon.
   const meta = SET_BY_ID[setId];
   if (meta && meta.chaseId) {
-    const baked = pool.find((c) => c.id === meta.chaseId);
+    const baked = pool.find((c) => normCardId(c.id) === normCardId(meta.chaseId));
     if (baked) return baked;
   }
   const priced = pool.filter((c) => (c.price || 0) > 0);
@@ -376,6 +391,7 @@ async function getChasePrice(setId) {
 // rip after a cold Render start doesn't synchronously fetch a whole pool
 // (~8s on the flaky upstream). Never blocks listen() or /api/sets.
 let warmupDone = false;
+let imagesWarmed = 0;
 async function warmup() {
   const ids = SETS.map((s) => s.id);
   for (let i = 0; i < ids.length; i += 4) {
@@ -386,8 +402,18 @@ async function warmup() {
       try { await Promise.all([loadPool(id), getChasePrice(id)]); } catch { /* warmup is best-effort */ }
     }));
   }
+  // Warm the image proxy cache for all 23 chase images (small + hires).
+  // Without this, first paint fires 23 upstream fetches through the proxy
+  // and the shelf sits as blank dark packs for up to a minute on a cold
+  // Render instance — the main "nothing works" impression.
+  const artUrls = SETS.flatMap((s) => [s.chaseImage, s.chaseImage.replace('_hires.png', '.png')]);
+  for (let i = 0; i < artUrls.length; i += 6) {
+    const done = await Promise.all(artUrls.slice(i, i + 6).map((u) =>
+      fetchAndCacheImage(u).then((hit) => (hit ? 1 : 0)).catch(() => 0)));
+    imagesWarmed += done.reduce((a, b) => a + b, 0);
+  }
   warmupDone = true;
-  console.log(`warmup done — ${cache.size} pools cached, ${chasePrices.size}/${SETS.length} chase prices`);
+  console.log(`warmup done — ${cache.size} pools cached, ${chasePrices.size}/${SETS.length} chase prices, ${imagesWarmed}/${artUrls.length} chase images`);
 }
 setImmediate(() => { warmup().catch(() => {}); });
 // Re-warm any chase prices that were still missing (transient upstream
@@ -403,6 +429,12 @@ app.get('/api/sets', (req, res) => {
   // on first load. Logo/symbol URLs follow pokemontcg.io's stable pattern.
   // chasePrice comes from the warmup cache when ready; the client also
   // fills it from /api/set/:id on the detail view.
+  // pokemontcg.io 502s intermittently, so a chase price can still be missing
+  // after warmup (sv8/sma were null on the live site). Kick a background
+  // refresh for any missing price on every /api/sets call — getChasePrice
+  // self-throttles to once a minute, so this is cheap and the $— fills in
+  // on its own instead of waiting for the 5-minute re-warm.
+  for (const s of SETS) if (!chasePrices.has(s.id)) getChasePrice(s.id).catch(() => null);
   const sets = SETS.map((s) => ({
     ...s,
     chasePrice: chasePrices.has(s.id) ? chasePrices.get(s.id) : null,
@@ -478,7 +510,7 @@ app.post('/api/rip/:id', async (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, sets: SETS.length, categories: { rare: 9, modern: 7, swsh: 4, vintage: 3 }, fetchStatus, warmupDone, poolsCached: cache.size, chasePricesKnown: [...chasePrices.values()].filter((p) => p != null).length, uptimeSec: Math.round(process.uptime()) });
+  res.json({ ok: true, sets: SETS.length, categories: { rare: 9, modern: 7, swsh: 4, vintage: 3 }, fetchStatus, warmupDone, poolsCached: cache.size, chasePricesKnown: [...chasePrices.values()].filter((p) => p != null).length, imagesWarmed, imgCacheSize: imgCache.size, uptimeSec: Math.round(process.uptime()) });
 });
 
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));

@@ -71,6 +71,27 @@ const CARD_BACK_SVG = `<svg class="card-back-svg" viewBox="0 0 300 420" xmlns="h
 </svg>`;
 
 // ---------------- Shelf ----------------
+// Pack-face art background: the chase photo on top, the foil gradient
+// underneath. The gradient stays visible while the photo is still loading,
+// so a pack is never a flat dark void on first paint (and if the photo
+// 404s, the pack still looks like a foil pack).
+const ART_GRADIENT = 'linear-gradient(160deg,#3a2a6e,#1c3a6e 45%,#7a2a3a)';
+function artBg(url) { return url ? `url("${url}"), ${ART_GRADIENT}` : ART_GRADIENT; }
+// Watch a pack-art span's image: once it has actually decoded, mark the
+// pack loaded so the loading shimmer stops. (A CSS background has no load
+// event of its own, so preload through an Image object.)
+function watchArt(root) {
+  (root || document).querySelectorAll('.pack-art').forEach((el) => {
+    const bg = el.style.backgroundImage || '';
+    const m = bg.match(/url\("?([^")]+)"?\)/);
+    if (!m) return;
+    const img = new Image();
+    img.onload = () => { const p = el.closest('.pack') || el.parentElement; if (p) p.classList.add('art-in'); };
+    img.onerror = () => { const p = el.closest('.pack') || el.parentElement; if (p) p.classList.add('art-in'); };
+    img.src = m[1];
+  });
+}
+
 async function loadSets() {
   const res = await fetch('/api/sets');
   const data = await res.json();
@@ -83,10 +104,15 @@ async function loadSets() {
   for (const s of sets) {
     // chasePrice comes from the server warmup cache when ready; it is also
     // filled in from /api/set/:id when a pack is opened (see openPack).
-    // Art is served through the same-origin /api/img proxy; the shelf uses
-    // the small variant, the sealed pack / viewer use hires.
+    // Art is served through the same-origin /api/img proxy; the pack face
+    // uses HIRES — the face crops to the card's illustration window at ~3x
+    // zoom, and the 245px small variant goes blurry at that zoom.
     if (s.chaseImage) chaseArt[s.id] = { name: s.chase, imageHires: s.chaseImage, image: s.chaseImageSmall || s.chaseImage, imageSmall: s.chaseImageSmall || s.chaseImage, price: s.chasePrice ?? null };
   }
+  // Kick off all 23 hires chase images now (they hit the server-warmed
+  // proxy cache), so the shelf backgrounds paint from the browser cache
+  // instead of queuing 23 cold upstream fetches on first paint.
+  for (const s of sets) if (s.chaseImage) { const im = new Image(); im.src = s.chaseImage; }
   renderFilters();
   renderShelf();
   $('#shelfLoading').hidden = true;
@@ -102,10 +128,13 @@ function renderFilters() {
 
 function packCardHTML(s) {
   const chase = s.chase ? `Chase: <span class="chase">${escapeHtml(s.chase)}</span>` : '';
-  const artUrl = s.chaseImageSmall || s.chaseImage || (chaseArt[s.id] && (chaseArt[s.id].imageSmall || chaseArt[s.id].imageHires || chaseArt[s.id].image)) || '';
+  // Pack face uses the HIRES chase image (see loadSets): the face is framed
+  // on the card's illustration window at ~3x zoom (styles.css), and the
+  // 245px small variant turns to mush at that zoom.
+  const artUrl = s.chaseImage || s.chaseImageSmall || (chaseArt[s.id] && (chaseArt[s.id].imageHires || chaseArt[s.id].image)) || '';
   return `<button class="pack" data-set="${s.id}" type="button" aria-label="Open ${escapeHtml(s.name)}">
     <span class="pack-inner">
-      <span class="pack-art" data-pack-art="${s.id}"${artUrl ? ` style="background-image:url(&quot;${artUrl}&quot;)"` : ''}></span>
+      <span class="pack-art" data-pack-art="${s.id}" style="background-image:${artBg(artUrl)}"></span>
       <span class="pack-burst"></span><span class="pack-bend"></span><span class="pack-foil"></span>
       <span class="crimp top"></span><span class="crimp bottom"></span>
       <span class="pack-brand"><span class="poke">Pokémon</span><br><span class="tcg">TRADING CARD GAME</span></span>
@@ -127,8 +156,9 @@ function renderShelf() {
   grid.querySelectorAll('.pack').forEach((el) => el.addEventListener('click', () => openPack(el.dataset.set)));
   for (const [id, c] of Object.entries(chaseArt)) {
     const el = grid.querySelector(`[data-pack-art="${id}"]`);
-    if (el) el.style.backgroundImage = `url("${c.imageSmall || c.imageHires || c.image}")`;
+    if (el) el.style.backgroundImage = artBg(c.imageHires || c.image);
   }
+  watchArt(grid);
 }
 
 // ---------------- Card viewer (every card is tappable) ----------------
@@ -242,7 +272,8 @@ function openPack(setId) {
   const sealed = $('#sealedPack');
   sealed.replaceWith(inner);
   inner.id = 'sealedPack';
-  if (art) { const a = inner.querySelector('.pack-art'); if (a) a.style.backgroundImage = `url("${art.imageHires || art.image}")`; }
+  if (art) { const a = inner.querySelector('.pack-art'); if (a) a.style.backgroundImage = artBg(art.imageHires || art.image); }
+  watchArt(stage);
   // Chase card is tappable to view it.
   const chaseLine = $('#chaseLine');
   const renderChaseLine = () => {
@@ -310,7 +341,7 @@ function showSliceStage(data) {
   const faces = packs.map(() => {
     const inner = tmp.querySelector('.pack-inner').cloneNode(true);
     const art = chaseArt[currentSet.id];
-    if (art) { const a = inner.querySelector('.pack-art'); if (a) a.style.backgroundImage = `url("${art.imageHires || art.image}")`; }
+    if (art) { const a = inner.querySelector('.pack-art'); if (a) a.style.backgroundImage = artBg(art.imageHires || art.image); }
     return inner.outerHTML;
   }).join('');
   stage.innerHTML = `
@@ -332,6 +363,14 @@ function showSliceStage(data) {
     wrap.appendChild(teaser);
   }
   if (navigator.vibrate) navigator.vibrate(25);
+  watchArt(stage);
+  // Preload the ripped cards' art NOW, while the user is on the slice
+  // stage — the fan renders all 11 <img>s at once, and if they only start
+  // loading then (each through a cold proxy), flipped cards show a blank
+  // face for seconds. Small images first (fast, ~50KB), then the first
+  // pack's hires versions so the flip face can sharpen up.
+  for (const p of packs) for (const c of p.cards) { const im = new Image(); im.src = c.image; }
+  if (packs[0]) for (const c of packs[0].cards) { const im = new Image(); im.src = c.imageHires || c.image; }
   attachSlice($('#sliceWrap'), data);
 }
 
@@ -434,10 +473,13 @@ function attachSlice(wrap, data) {
 // Single source of truth for the counter. The old code updated it in
 // showFan/advanceCard only — the swipe-fling path incremented ripIndex
 // directly and never touched it, so it stuck at e.g. "11 cards left".
+// A card counts as revealed the moment it is flipped face-up, not when it
+// is swiped away — so the counter drops on flip, not just on advance.
+let activeFlipped = false; // the active card is face-up but not yet advanced
 function updateCardsLeft() {
   if (!rip) return;
   const totalCards = packs.reduce((s, p) => s + p.cards.length, 0);
-  const done = packs.slice(0, packIdx).reduce((s, p) => s + p.cards.length, 0) + ripIndex;
+  const done = packs.slice(0, packIdx).reduce((s, p) => s + p.cards.length, 0) + ripIndex + (activeFlipped ? 1 : 0);
   const left = totalCards - done;
   $('#cardsLeft').textContent = packs.length > 1
     ? `Pack ${packIdx + 1} of ${packs.length} · ${left} card${left === 1 ? '' : 's'} left`
@@ -450,6 +492,7 @@ function showFan() {
   $('#valuePill').hidden = false;
   $('#viewCardBtn').hidden = true;
   $('#valueSoFar').textContent = fmt(revealedValue);
+  activeFlipped = false;
   updateCardsLeft();
   renderThumbs();
   const fan = document.createElement('div');
@@ -465,12 +508,26 @@ function showFan() {
     el.style.zIndex = rip.cards.length - i;
     // Fan offsets are reset to exactly flat for the active card below.
     el.style.transform = `translateY(${Math.min(i, 4) * 6}px) rotate(${(i % 2 ? 1 : -1) * Math.min(i, 3) * 1.2}deg) scale(${1 - Math.min(i, 4) * 0.02})`;
+    // Flip face shows the SMALL image first — it is already preloaded from
+    // the slice stage, so the Pokémon picture is there the instant the card
+    // flips. The hires version swaps in behind it as soon as it loads
+    // (see the upgrade loop below); the face has a foil gradient behind the
+    // <img> so it is never a blank face while loading.
     el.innerHTML = `<div class="flip-inner">
       <div class="flip-face flip-back">${CARD_BACK_SVG}<div class="shine"></div></div>
-      <div class="flip-face flip-front"><img src="${card.imageHires || card.image}" alt="${escapeHtml(card.name)}" draggable="false"><div class="shine"></div>
+      <div class="flip-face flip-front"><img src="${card.image}" data-hires="${card.imageHires || card.image}" alt="${escapeHtml(card.name)}" draggable="false"><div class="shine"></div>
       <div class="card-price"><span>${escapeHtml(card.name)}</span><span>${money(card.price)}</span></div></div>
     </div>`;
     fan.appendChild(el);
+  });
+  // Sharpen every flip face to hires in the background; the small image is
+  // already showing, so this is a silent upgrade, never a blank wait.
+  fan.querySelectorAll('.flip-front img').forEach((img) => {
+    if (img.dataset.hires && img.dataset.hires !== img.getAttribute('src')) {
+      const hi = new Image();
+      hi.onload = () => { img.src = hi.src; };
+      hi.src = img.dataset.hires;
+    }
   });
   attachReveal(fan);
   markLastCardSpecial();
@@ -500,6 +557,10 @@ function revealActive() {
   el.classList.add('flipped');
   // Settle flat: clear any drag tilt the moment the card is face-up.
   el.style.transform = 'translate(0px, 0px) rotate(0deg)';
+  // Flipped = revealed: the counter drops now, not when the card is
+  // swiped away.
+  activeFlipped = true;
+  updateCardsLeft();
   revealedValue += card.price || 0;
   animateValue(revealedValue);
   revealedCards.push(card);
@@ -519,6 +580,7 @@ function advanceCard() {
   el.style.opacity = '0';
   setTimeout(() => el.remove(), 480);
   ripIndex += 1;
+  activeFlipped = false;
   updateCardsLeft();
   $('#viewCardBtn').hidden = true;
   const next = activeCardEl();
@@ -607,7 +669,7 @@ function attachReveal(fan) {
       el.style.opacity = '0';
       const flipped = el.classList.contains('flipped');
       setTimeout(() => { el.remove(); }, 320);
-      if (flipped) { ripIndex += 1; updateCardsLeft(); $('#viewCardBtn').hidden = true; if (!activeCardEl()) { if (packIdx + 1 < packs.length) { packIdx += 1; rip = packs[packIdx]; ripIndex = 0; setTimeout(showFan, 350); } else setTimeout(showSummary, 350); } else { const n = activeCardEl(); if (n) n.style.transform = 'translateY(0) rotate(0deg) scale(1)'; } }
+      if (flipped) { activeFlipped = false; ripIndex += 1; updateCardsLeft(); $('#viewCardBtn').hidden = true; if (!activeCardEl()) { if (packIdx + 1 < packs.length) { packIdx += 1; rip = packs[packIdx]; ripIndex = 0; setTimeout(showFan, 350); } else setTimeout(showSummary, 350); } else { const n = activeCardEl(); if (n) n.style.transform = 'translateY(0) rotate(0deg) scale(1)'; } }
       else { revealActive(); setTimeout(() => { if (activeCardEl()) advanceCard(); }, 650); }
     } else {
       // Spring snap-back, landing flat.

@@ -9,6 +9,7 @@
   --card-w:min(78vw,300px);
 }
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+html{scrollbar-gutter:stable}
 html,body{margin:0;padding:0;overflow-x:clip;overscroll-behavior-x:none}
 body{background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;overscroll-behavior:none;overflow-x:clip}
 .hatch-space-root,main,#app{overflow-x:clip}
@@ -46,10 +47,34 @@ h2{font-size:26px}
 .pack{position:relative;display:block;border:0;background:none;padding:0;text-align:left;width:100%;min-width:0;transform:translateZ(0)}
 .pack-inner{position:relative;display:block;width:100%;aspect-ratio:5/8.6;border-radius:10px;overflow:hidden;background:#111;
   box-shadow:0 10px 24px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.08)}
-.pack-art{position:absolute;display:block;inset:0;background-size:cover;background-position:50% 24%;transform:scale(1.4);transform-origin:50% 24%;filter:saturate(1.05);
-  /* Never a flat black void while / if the chase art hasn't loaded: a
-     foil-coloured gradient sits behind the art. */
+.pack-art{position:absolute;display:block;inset:0;
+  /* Frame ONLY the card's illustration window — never the card's text.
+     The old framing (cover + scale(1.4), origin 24%) showed a 7–78% vertical
+     band of the card, so attack text ("Rotating Claws", "Spiral Rush",
+     "Energy Burn") bled across the pack face under the set name. A Pokémon
+     card's illustration sits at roughly y 9–51% of the card, and the pack
+     face is tall and narrow, so the photo is zoomed to 350% width with its
+     position at y 26%: background-position percentages align the same
+     percentage point of image and box, so with a ~35% visible height the
+     window is y ~17–52% — illustration only. The window must start at ~17%,
+     not ~9%: modern Tera ex cards put a rule box directly under the name
+     ("As long as this Pokémon is on your Bench, prevent all damage done to
+     this Pokémon by attacks…"), and 300%/15% (window y 9–51%) still showed
+     it. The bottom edge (52%) lands behind the set-name dark band, so the
+     e-Card Pokédex strip and the Gold Star Poké-Power line stay hidden.
+     The second background layer is the foil gradient, which shows while the
+     photo is still loading. The photo must be the hires image at this zoom
+     — the 245px small variant blurs. */
+  background-size:350% auto, cover;background-position:50% 26%, 0 0;filter:saturate(1.05);
   background-color:#2a2a55;background-image:linear-gradient(160deg,#3a2a6e,#1c3a6e 45%,#7a2a3a)}
+/* Loading shimmer in the art window until the photo has actually decoded
+   (JS adds .art-in to the pack then). The foil gradient sits behind it. */
+.pack-art::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(115deg,transparent 30%,rgba(255,255,255,.30) 46%,rgba(255,180,255,.22) 52%,rgba(255,255,255,.30) 58%,transparent 72%);
+  background-size:250% 100%;animation:foilSweep 1.4s linear infinite}
+.pack.art-in .pack-art::before{display:none}
+.pack:not(.art-in) .pack-art{animation:artLoading 1.6s ease-in-out infinite}
+@keyframes artLoading{0%,100%{filter:brightness(.8) saturate(1.05)}50%{filter:brightness(1.2) saturate(1.05)}}
 .pack-art::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.28),transparent 30%,transparent 62%,rgba(0,0,0,.55))}
 .pack-bend{position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.5),transparent 18%,rgba(255,255,255,.10) 46%,transparent 62%,rgba(0,0,0,.5));pointer-events:none}
 .pack-burst{position:absolute;inset:auto 0 26% 0;height:44%;background:radial-gradient(120% 100% at 50% 100%,rgba(255,255,255,.22),transparent 60%);pointer-events:none}
@@ -80,7 +105,11 @@ h2{font-size:26px}
 .value-pill{position:sticky;top:64px;z-index:15;display:inline-block;background:#1d2b1d;border:1px solid #3f7a3f;color:#b8f0b8;border-radius:999px;padding:8px 14px;font-weight:700;margin-bottom:10px}
 .rip-stage{position:relative;min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow-x:clip;max-width:100vw}
 .sealed-wrap{position:relative;width:var(--card-w);max-width:320px;text-align:center}
-.sealed-wrap .pack-inner{animation-duration:5s}
+/* Slow sway on the big sealed pack only (the artifact's look): the grid
+   tiles stay static — the old grid-wide sway spilled tiles into each other.
+   A gentle ±1.2deg rotate, no translation, so nothing overflows. */
+.sealed-wrap .pack-inner{animation:packSway 5s ease-in-out infinite}
+@keyframes packSway{0%,100%{transform:rotate(-1.2deg)}50%{transform:rotate(1.2deg)}}
 /* The sealed pack is deliberately inert: no click handler, no touch lock —
    tapping it does nothing and vertical swipes scroll the page normally. */
 .sealed-wrap .pack-inner{touch-action:pan-y}
@@ -129,7 +158,8 @@ h2{font-size:26px}
 .flip-face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:12px;overflow:hidden;box-shadow:0 14px 34px rgba(0,0,0,.6)}
 .flip-face img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
 .flip-back{transform:rotateY(0)}
-.flip-front{transform:rotateY(180deg)}
+.flip-front{transform:rotateY(180deg);background:linear-gradient(160deg,#3a2a6e,#1c3a6e 45%,#7a2a3a)}
+.flip-front img{background:linear-gradient(160deg,#2a2a55,#1c3a6e)}
 .card-back-svg{width:100%;height:100%;display:block}
 .flip-card .shine{position:absolute;inset:0;z-index:2;pointer-events:none;mix-blend-mode:screen;
   background:linear-gradient(115deg,transparent 35%,rgba(255,255,255,.45) 48%,rgba(255,180,255,.3) 55%,transparent 68%);
