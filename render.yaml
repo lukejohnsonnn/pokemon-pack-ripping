@@ -1,4 +1,3 @@
-name: pokemon-pack-ripping
 services:
   - type: web
     name: pokemon-pack-ripping
