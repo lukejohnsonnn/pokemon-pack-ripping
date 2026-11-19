@@ -49,6 +49,34 @@ let packCount = 1;       // 1-pack / 5-pack selector, chosen up front
 let openAllUpFront = false;
 let revealedCards = [];  // cards already revealed, for thumbnails
 
+// ---------------- Credits (localStorage, same model as the binder) ----------------
+// Every user starts with 1,000 credits; every pack costs 50 (1 pack = 50,
+// 5 packs = 250). The balance is initialised ONCE, when the key is absent —
+// later loads never reset it. There is no earning/refill/shop path yet;
+// insufficient balance simply blocks the Rip button with a message.
+const CREDITS_KEY = 'ppr-credits-v1';
+const PACK_COST = 50;
+const START_CREDITS = 1000;
+function loadCredits() {
+  try {
+    // Number(null) is 0, so an absent key must be checked BEFORE converting
+    // — the first version of this read "0 credits" for every new user.
+    const raw = localStorage.getItem(CREDITS_KEY);
+    if (raw == null) return START_CREDITS;
+    const v = Number(raw);
+    if (Number.isFinite(v) && v >= 0) return Math.floor(v);
+  } catch { /* storage unavailable — play with the starting balance in memory */ }
+  return START_CREDITS;
+}
+let credits = loadCredits();
+function saveCredits() { try { localStorage.setItem(CREDITS_KEY, String(credits)); } catch { /* ignore */ } }
+saveCredits(); // persist the initialised value once; never resets an existing balance
+function updateCreditsUI() {
+  const el = $('#creditsCount');
+  if (el) el.textContent = credits.toLocaleString();
+}
+const ripCost = (n) => PACK_COST * n;
+
 // ---------------- Binder (localStorage) ----------------
 const BINDER_KEY = 'ppr-binder-v1';
 function loadBinder() { try { return JSON.parse(localStorage.getItem(BINDER_KEY) || '[]'); } catch { return []; } }
@@ -262,6 +290,7 @@ function openPack(setId) {
       </div>
       <label class="openall-toggle"><input type="checkbox" id="openAllToggle"> Open all at once</label>
       <button class="primary-btn rip-btn" id="ripBtn" type="button">Rip ${escapeHtml(set.name)}</button>
+      <p class="credits-msg" id="creditsMsg" hidden></p>
       <p class="rip-hint">Press Rip, then swipe across the pack to open it.</p>
     </div>`;
   // Reuse the shelf pack face for the big sealed pack. Deliberately NO
@@ -295,10 +324,33 @@ function openPack(setId) {
       }
     }).catch(() => { /* price stays $—; the pack still rips */ });
   }
+  // Rip button shows its cost and blocks when the balance is short.
+  // The button is the only place a rip can start, so this is the single
+  // gate for spending credits.
+  function refreshRipBtn() {
+    const btn = $('#ripBtn');
+    if (!btn) return;
+    const cost = ripCost(packCount);
+    btn.textContent = packCount === 5
+      ? `Rip 5 ${escapeHtml(set.name)} packs — ${cost} credits`
+      : `Rip ${escapeHtml(set.name)} — ${cost} credits`;
+    const msg = $('#creditsMsg');
+    if (credits < cost) {
+      btn.disabled = true;
+      if (msg) {
+        msg.hidden = false;
+        msg.textContent = `Not enough credits — you have ${credits.toLocaleString()} credits. Each pack costs 50 credits.`;
+      }
+    } else {
+      btn.disabled = false;
+      if (msg) msg.hidden = true;
+    }
+  }
+  refreshRipBtn();
   stage.querySelectorAll('.count-btn').forEach((b) => b.addEventListener('click', () => {
     packCount = Number(b.dataset.count);
     stage.querySelectorAll('.count-btn').forEach((x) => x.classList.toggle('active', x === b));
-    $('#ripBtn').textContent = packCount === 5 ? `Rip 5 ${escapeHtml(set.name)} packs` : `Rip ${escapeHtml(set.name)}`;
+    refreshRipBtn();
   }));
   $('#openAllToggle').addEventListener('change', (e) => { openAllUpFront = e.target.checked; });
   $('#ripBtn').addEventListener('click', startRip);
@@ -306,6 +358,9 @@ function openPack(setId) {
 
 async function startRip() {
   if (!currentSet) return;
+  // Belt and braces: the button is disabled when the balance is short,
+  // but never spend what the user doesn't have.
+  if (credits < ripCost(packCount)) return;
   const stage = $('#ripStage');
   const btn = $('#ripBtn');
   btn.disabled = true;
@@ -319,9 +374,18 @@ async function startRip() {
     data = await res.json();
     if (data.error) throw new Error(data.error);
   } catch (e) {
-    stage.innerHTML = `<p class="empty">Couldn't load that pack right now (${escapeHtml(e.message)}). Check your connection and try again.</p>`;
+    // No deduction on a failed rip — the user keeps their credits and can
+    // retry from the sealed pack.
+    stage.innerHTML = `<p class="empty">Couldn't load that pack right now (${escapeHtml(e.message)}). Check your connection and try again — no credits were spent.</p>
+      <button class="primary-btn" id="retryBtn" type="button">Back to pack</button>`;
+    stage.querySelector('#retryBtn').addEventListener('click', () => openPack(currentSet.id));
     return;
   }
+  // Deduct ONLY here: the rip loaded successfully, and this is the one
+  // place it can happen per rip — re-opening the same rip never re-charges.
+  credits -= ripCost(packCount);
+  saveCredits();
+  updateCreditsUI();
   packs = data.packs;
   packIdx = 0; rip = packs[0]; ripIndex = 0;
   revealedValue = 0; revealedCards = [];
@@ -330,9 +394,10 @@ async function startRip() {
 
 // ---------------- Slicing stage: rainbow trail, pack never moves ----------------
 // The crimp/top stays exactly in place; there is no black hole. A rainbow
-// trail follows the finger on a canvas overlay, plus a rainbow progress
-// bar. Swiping across the pack (across the tight group for
-// 5 packs) opens it instantly mid-swipe. Short swipes fade the bar back.
+// trail follows the finger on a canvas overlay. Swiping across the pack
+// (across the tight group for 5 packs) opens it instantly mid-swipe. There
+// is deliberately NO swipe progress bar — the trail is the only feedback.
+// Short swipes just fade the trail back.
 function showSliceStage(data) {
   const stage = $('#ripStage');
   const multi = packs.length > 1;
@@ -348,7 +413,6 @@ function showSliceStage(data) {
     <div class="slice-wrap ${multi ? 'multi' : ''}" id="sliceWrap">
       <div class="slice-packs" id="slicePacks">${faces}</div>
       <canvas id="trailCanvas" class="trail-canvas"></canvas>
-      <div class="slice-progress" aria-hidden="true"><div class="slice-progress-fill" id="sliceFill"></div></div>
       <p class="slice-hint">Swipe across to open</p>
       <button class="secondary-btn" id="sliceOpenBtn" type="button">Open it</button>
     </div>`;
@@ -377,33 +441,40 @@ function showSliceStage(data) {
 function attachSlice(wrap, data) {
   const canvas = wrap.querySelector('#trailCanvas');
   const ctx = canvas.getContext('2d');
-  const fill = wrap.querySelector('#sliceFill');
   const packsEl = wrap.querySelector('#slicePacks');
   let slicing = false, startX = 0, opened = false, hue = 0;
   let lastPt = null;
-
+  // Cached measurements — the old code called getBoundingClientRect() on
+  // every pointermove, forcing a layout read per frame mid-swipe. The pack
+  // group only changes size on resize, so measure once and cache.
+  let sliceWidth = 1;
+  let canvasRect = null;
   function sizeCanvas() {
     const r = packsEl.getBoundingClientRect();
+    sliceWidth = Math.max(1, r.width);
     canvas.width = Math.max(1, Math.round(r.width * devicePixelRatio));
     canvas.height = Math.max(1, Math.round(r.height * devicePixelRatio));
     canvas.style.width = r.width + 'px';
     canvas.style.height = r.height + 'px';
+    canvasRect = canvas.getBoundingClientRect();
+    // Stroke setup that never changes per segment — set once, not per
+    // pointermove. Only the hue (strokeStyle/shadowColor) varies.
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 10 * devicePixelRatio;
+    ctx.shadowBlur = 18 * devicePixelRatio;
   }
   sizeCanvas();
+  // Resize is the only thing that invalidates the cached measurements.
+  // The listener is removed when the slice completes, so a replaced stage
+  // never leaves a stale listener behind.
   window.addEventListener('resize', sizeCanvas);
-
-  function setProgress(p) {
-    fill.style.width = (Math.max(0, Math.min(1, p)) * 100) + '%';
-    fill.style.opacity = p > 0 ? '1' : '0';
-  }
   function drawTrail(x, y) {
-    const rect = canvas.getBoundingClientRect();
-    const px = (x - rect.left) * devicePixelRatio, py = (y - rect.top) * devicePixelRatio;
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.strokeStyle = `hsl(${hue % 360}, 100%, 60%)`;
-    ctx.lineWidth = 10 * devicePixelRatio;
-    ctx.shadowColor = `hsl(${hue % 360}, 100%, 60%)`;
-    ctx.shadowBlur = 18 * devicePixelRatio;
+    // Uses the cached canvas rect — no layout read per pointermove.
+    const px = (x - canvasRect.left) * devicePixelRatio, py = (y - canvasRect.top) * devicePixelRatio;
+    const col = `hsl(${hue % 360}, 100%, 60%)`;
+    ctx.strokeStyle = col;
+    ctx.shadowColor = col;
     ctx.beginPath();
     if (lastPt) { ctx.moveTo(lastPt[0], lastPt[1]); } else { ctx.moveTo(px, py); }
     ctx.lineTo(px, py);
@@ -420,6 +491,7 @@ function attachSlice(wrap, data) {
   function completeSlice() {
     if (opened) return;
     opened = true;
+    window.removeEventListener('resize', sizeCanvas);
     // Quick light show only: flash + rays + spill. ~0.4s (0.65s for god
     // packs), then the cards land. No top movement, no black hole.
     const flash = document.createElement('div');
@@ -440,24 +512,27 @@ function attachSlice(wrap, data) {
     // so "Open it" did nothing. Buttons never start a slice.
     if (e.target.closest('button')) return;
     slicing = true; startX = e.clientX; lastPt = null;
+    canvasRect = canvas.getBoundingClientRect(); // re-measure at gesture start (cheap, once per swipe)
     try { wrap.setPointerCapture(e.pointerId); } catch { /* noop */ }
     drawTrail(e.clientX, e.clientY);
   });
   wrap.addEventListener('pointermove', (e) => {
     if (!slicing || opened) return;
+    // A move with no buttons pressed means the gesture already ended but
+    // the release never arrived (finger lifted at the screen edge, browser
+    // took the gesture) — end the slice instead of waiting for a pointerup
+    // that may never come.
+    if (e.buttons === 0) { endSlice(); return; }
     drawTrail(e.clientX, e.clientY);
-    const width = packsEl.getBoundingClientRect().width || 1;
-    const progress = Math.abs(e.clientX - startX) / width;
-    setProgress(progress);
+    // Cached width — no layout read here any more.
+    const progress = Math.abs(e.clientX - startX) / sliceWidth;
     if (progress >= 0.5) completeSlice();
   });
   function endSlice() {
     if (!slicing || opened) return;
     slicing = false;
-    // Short swipe: fade the bar back, fade the trail.
-    fill.style.transition = 'width .35s ease, opacity .35s ease';
-    setProgress(0);
-    setTimeout(() => { fill.style.transition = ''; }, 400);
+    // Short swipe: just fade the trail back. There is no progress bar
+    // any more — nothing else to reset.
     fadeTrail();
   }
   wrap.addEventListener('pointerup', endSlice);
@@ -507,7 +582,7 @@ function showFan() {
     el.dataset.pack = packIdx;
     el.style.zIndex = rip.cards.length - i;
     // Fan offsets are reset to exactly flat for the active card below.
-    el.style.transform = `translateY(${Math.min(i, 4) * 6}px) rotate(${(i % 2 ? 1 : -1) * Math.min(i, 3) * 1.2}deg) scale(${1 - Math.min(i, 4) * 0.02})`;
+    el.style.transform = `translate3d(0, ${Math.min(i, 4) * 6}px, 0) rotate(${(i % 2 ? 1 : -1) * Math.min(i, 3) * 1.2}deg) scale(${1 - Math.min(i, 4) * 0.02})`;
     // Flip face shows the SMALL image first — it is already preloaded from
     // the slice stage, so the Pokémon picture is there the instant the card
     // flips. The hires version swaps in behind it as soon as it loads
@@ -556,7 +631,7 @@ function revealActive() {
   if (special) el.classList.add('gold-halo', 'slowmo');
   el.classList.add('flipped');
   // Settle flat: clear any drag tilt the moment the card is face-up.
-  el.style.transform = 'translate(0px, 0px) rotate(0deg)';
+  el.style.transform = 'translate3d(0, 0, 0) rotate(0deg)';
   // Flipped = revealed: the counter drops now, not when the card is
   // swiped away.
   activeFlipped = true;
@@ -582,10 +657,12 @@ function advanceCard(dx, dy) {
   if (!el) return;
   const flyX = dx != null ? dx : window.innerWidth * 1.2;
   const flyY = dy != null ? dy : 0;
-  el.style.transition = 'transform .45s ease-in, opacity .45s';
-  el.style.transform = `translate(${flyX}px, ${flyY}px) rotate(0deg)`;
+  // Smooth accelerating fly-off (gentle start, no snap), matched to the
+  // removal timer so the card never pops out mid-flight.
+  el.style.transition = 'transform .5s cubic-bezier(.45,.05,.55,.2), opacity .5s ease';
+  el.style.transform = `translate3d(${flyX}px, ${flyY}px, 0) rotate(0deg)`;
   el.style.opacity = '0';
-  setTimeout(() => el.remove(), 480);
+  setTimeout(() => el.remove(), 520);
   ripIndex += 1;
   activeFlipped = false;
   updateCardsLeft();
@@ -594,7 +671,7 @@ function advanceCard(dx, dy) {
   if (next) {
     // Next card starts exactly flat — never inherits the previous tilt.
     next.style.transition = '';
-    next.style.transform = 'translateY(0) rotate(0deg) scale(1)';
+    next.style.transform = 'translate3d(0, 0, 0) rotate(0deg) scale(1)';
     if (next.dataset.special) next.classList.add('gold-halo');
   } else if (packIdx + 1 < packs.length) {
     // Next pack in the batch.
@@ -627,13 +704,13 @@ function attachReveal(fan) {
   let curX = 0, curY = 0, tgtX = 0, tgtY = 0;
 
   function loop() {
-    curX += (tgtX - curX) * 0.35;
-    curY += (tgtY - curY) * 0.35;
+    curX += (tgtX - curX) * 0.42;
+    curY += (tgtY - curY) * 0.42;
     const el = activeCardEl();
     if (el && drag) {
       const dist = Math.hypot(curX, curY);
       const tilt = curX * 0.08 * (1 - Math.min(1, dist / 200));
-      el.style.transform = `translate(${curX}px, ${curY}px) rotate(${tilt}deg)`;
+      el.style.transform = `translate3d(${curX}px, ${curY}px, 0) rotate(${tilt}deg)`;
       const glow = Math.min(1, dist / 70);
       el.style.boxShadow = glow > 0.15 ? `0 0 ${20 + glow * 30}px rgba(245,197,66,${glow * 0.8})` : '';
       if (glow > 0.85 && !drag.tick) { drag.tick = true; if (navigator.vibrate) navigator.vibrate(10); }
@@ -652,12 +729,23 @@ function attachReveal(fan) {
   });
   fan.addEventListener('pointermove', (e) => {
     if (!drag) return;
+    // A move with no buttons pressed means the gesture already ended but
+    // the release never arrived (finger lifted at the screen edge, browser
+    // took the gesture). Without this, the drag loop keeps lerping toward
+    // a stale point forever and the fan looks frozen — the card drifts off
+    // on its own and no later tap or swipe can start a drag.
+    if (e.buttons === 0) { endDrag(e); return; }
     tgtX = e.clientX - drag.x0;
     tgtY = e.clientY - drag.y0;
     drag.moved = Math.max(drag.moved, Math.hypot(tgtX, tgtY));
   });
   function endDrag(e) {
     if (!drag) return;
+    // Capture the drag and clear it FIRST: releasePointerCapture below
+    // fires lostpointercapture synchronously, and that handler also calls
+    // endDrag — if drag were still set, the card would advance twice.
+    const d = drag;
+    drag = null;
     cancelAnimationFrame(rafId);
     const el = activeCardEl();
     // Release pointer capture explicitly before anything below can remove
@@ -665,14 +753,13 @@ function attachReveal(fan) {
     // can leave the next gesture retargeted at a dead element, so the
     // next card never receives pointerdown and the fan looks frozen.
     if (el && e.pointerId != null) { try { el.releasePointerCapture(e.pointerId); } catch { /* already released on pointerup */ } }
-    const dt = Date.now() - drag.t0;
-    const isTap = drag.moved < 12 && dt < 350;
-    const fling = Math.hypot(tgtX, tgtY) > 70 || (drag.moved > 40 && dt < 250);
-    drag = null;
+    const dt = Date.now() - d.t0;
+    const isTap = d.moved < 12 && dt < 350;
+    const fling = Math.hypot(tgtX, tgtY) > 70 || (d.moved > 40 && dt < 250);
     if (!el) return;
     el.style.boxShadow = '';
     if (isTap) {
-      el.style.transform = 'translate(0px, 0px) rotate(0deg)';
+      el.style.transform = 'translate3d(0, 0, 0) rotate(0deg)';
       if (el.classList.contains('flipped')) advanceCard();
       else revealActive();
     } else if (fling) {
@@ -686,7 +773,7 @@ function attachReveal(fan) {
         // vanished) and then froze completely. A second swipe on the now
         // face-up card deals it away through advanceCard() below.
         el.style.transition = 'transform .35s cubic-bezier(.2,1.4,.4,1)';
-        el.style.transform = 'translate(0px, 0px) rotate(0deg)';
+        el.style.transform = 'translate3d(0, 0, 0) rotate(0deg)';
         setTimeout(() => { el.style.transition = ''; }, 380);
         revealActive();
       } else {
@@ -698,12 +785,16 @@ function attachReveal(fan) {
     } else {
       // Spring snap-back, landing flat.
       el.style.transition = 'transform .35s cubic-bezier(.2,1.4,.4,1)';
-      el.style.transform = 'translate(0px, 0px) rotate(0deg)';
+      el.style.transform = 'translate3d(0, 0, 0) rotate(0deg)';
       setTimeout(() => { el.style.transition = ''; }, 380);
     }
   }
   fan.addEventListener('pointerup', endDrag);
   fan.addEventListener('pointercancel', endDrag);
+  // If capture is lost without a pointerup (release never arrived), the
+  // drag would otherwise stay live forever — end it here. endDrag clears
+  // drag before releasing capture, so this can never double-fire.
+  fan.addEventListener('lostpointercapture', endDrag);
   fan.addEventListener('touchmove', (e) => { if (drag) e.preventDefault(); }, { passive: false });
   fan.addEventListener('contextmenu', (e) => e.preventDefault());
 }
@@ -812,4 +903,5 @@ document.addEventListener('keydown', (e) => {
 });
 
 updateBinderCount();
+updateCreditsUI();
 loadSets().catch(() => { $('#shelfLoading').textContent = 'Could not load packs — check your connection and refresh.'; });

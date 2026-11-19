@@ -19,6 +19,9 @@ button{font-family:inherit;cursor:pointer}
 .logo{font-weight:900;letter-spacing:.08em;font-size:18px}
 .logo span{color:var(--yellow)}
 .pill-btn{background:#23233a;color:var(--ink);border:1px solid #3a3a5c;border-radius:999px;padding:8px 14px;font-weight:700}
+.credits-pill{background:linear-gradient(135deg,#ffe27a,#c9960e);color:#3a2a00;border-radius:999px;padding:8px 14px;font-weight:900;font-size:14px;box-shadow:0 2px 10px rgba(245,197,66,.35)}
+.credits-msg{color:#ff9a9a;font-weight:700;margin:10px 0 0;font-size:14px}
+.rip-btn:disabled{opacity:.45;cursor:not-allowed}
 main{max-width:1060px;margin:0 auto;padding:18px 16px 60px}
 h1{font-size:34px;margin:6px 0 4px}
 h2{font-size:26px}
@@ -134,9 +137,7 @@ h2{font-size:26px}
 .slice-wrap.multi .slice-packs .pack-inner:nth-child(3){transform:rotate(2deg) translateY(-2px)}
 .slice-wrap.multi .slice-packs .pack-inner:nth-child(4){transform:rotate(-2deg) translateY(5px)}
 .slice-wrap.multi .slice-packs .pack-inner:nth-child(5){transform:rotate(3deg) translateY(2px)}
-.trail-canvas{position:absolute;inset:0;z-index:8;pointer-events:none}
-.slice-progress{height:8px;border-radius:999px;background:#23233a;overflow:hidden;margin-top:18px}
-.slice-progress-fill{height:100%;width:0;opacity:0;border-radius:999px;background:linear-gradient(90deg,#ff5f6d,#f5c542,#7ee787,#2a75bb,#b06bff)}
+.trail-canvas{position:absolute;inset:0;z-index:8;pointer-events:none;will-change:opacity}
 .slice-hint{margin-top:12px;color:var(--muted);font-size:14px}
 .gold-aura{position:absolute;inset:-30px;z-index:1;border-radius:24px;pointer-events:none;
   background:radial-gradient(circle,rgba(245,197,66,.5),rgba(245,197,66,.12) 55%,transparent 75%);
@@ -150,7 +151,8 @@ h2{font-size:26px}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* ---- Card fan / flip ---- */
-.fan{position:relative;width:100%;display:flex;justify-content:center;min-height:440px;touch-action:none;user-select:none;-webkit-user-select:none}
+.fan{position:relative;width:100%;display:flex;justify-content:center;min-height:440px;touch-action:none;user-select:none;-webkit-user-select:none;animation:fanIn .35s ease}
+@keyframes fanIn{from{opacity:0;transform:translate3d(0,10px,0) scale(.985)}to{opacity:1;transform:translate3d(0,0,0) scale(1)}}
 .flip-card{position:absolute;width:var(--card-w);max-width:300px;aspect-ratio:5/7;perspective:1200px;touch-action:none;cursor:pointer;will-change:transform}
 .flip-inner{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .55s cubic-bezier(.3,.7,.3,1.15)}
 .flip-card.flipped .flip-inner{transform:rotateY(180deg)}
