@@ -192,8 +192,19 @@ function renderShelf() {
 // ---------------- Card viewer (every card is tappable) ----------------
 function openViewer(card) {
   if (!card) return;
-  $('#viewerImg').src = card.imageHires || card.image || '';
-  $('#viewerImg').alt = card.name || '';
+  // Show the SMALL image first — it is already in the browser cache from
+  // the fan/shelf, so the panel never sits empty — then swap in the hires
+  // version when it loads. The old code set the hires src directly, so the
+  // viewer flashed an empty panel (name/price only, fan card showing
+  // through the backdrop) while the hires image came down.
+  const img = $('#viewerImg');
+  img.src = card.image || card.imageHires || '';
+  img.alt = card.name || '';
+  if (card.imageHires && card.imageHires !== img.src) {
+    const hi = new Image();
+    hi.onload = () => { img.src = hi.src; };
+    hi.src = card.imageHires;
+  }
   $('#viewerName').textContent = card.name || '';
   $('#viewerRarity').textContent = card.rarity || '';
   $('#viewerPrice').textContent = money(card.price);
@@ -412,6 +423,7 @@ function showSliceStage(data) {
   stage.innerHTML = `
     <div class="slice-wrap ${multi ? 'multi' : ''}" id="sliceWrap">
       <div class="slice-packs" id="slicePacks">${faces}</div>
+      <div class="slice-glow" id="sliceGlow"></div>
       <canvas id="trailCanvas" class="trail-canvas"></canvas>
       <p class="slice-hint">Swipe across to open</p>
       <button class="secondary-btn" id="sliceOpenBtn" type="button">Open it</button>
@@ -442,8 +454,35 @@ function attachSlice(wrap, data) {
   const canvas = wrap.querySelector('#trailCanvas');
   const ctx = canvas.getContext('2d');
   const packsEl = wrap.querySelector('#slicePacks');
+  const glow = wrap.querySelector('#sliceGlow');
   let slicing = false, startX = 0, opened = false, hue = 0;
   let lastPt = null;
+  // Progress-driven opening: the glow + pack lift track the finger in
+  // real time (0 = untouched, 1 = at the open threshold), so the opening
+  // animation STARTS as the person swipes instead of only firing after
+  // the swipe completes. There is no progress bar — the glow and the
+  // rainbow trail are the only feedback.
+  let openP = 0;
+  let openTween = 0; // token: a new swipe cancels a settling tween
+  function setOpenP(p) {
+    openP = Math.max(0, Math.min(1, p));
+    glow.style.opacity = String(openP * 0.95);
+    packsEl.style.filter = openP > 0 ? `brightness(${(1 + openP * 0.12).toFixed(3)})` : '';
+    packsEl.style.transform = openP > 0 ? `scale(${(1 + openP * 0.015).toFixed(4)})` : '';
+  }
+  function settleOpenP() {
+    // Short/aborted swipe: ease the glow back to 0 over ~300ms instead of
+    // snapping it off, so the pack settles back cleanly.
+    const token = ++openTween;
+    const from = openP;
+    const t0 = performance.now();
+    (function step(t) {
+      if (token !== openTween || opened) return;
+      const k = Math.min(1, (t - t0) / 300);
+      setOpenP(from * (1 - k));
+      if (k < 1) requestAnimationFrame(step);
+    })(t0);
+  }
   // Cached measurements — the old code called getBoundingClientRect() on
   // every pointermove, forcing a layout read per frame mid-swipe. The pack
   // group only changes size on resize, so measure once and cache.
@@ -491,6 +530,8 @@ function attachSlice(wrap, data) {
   function completeSlice() {
     if (opened) return;
     opened = true;
+    openTween++; // cancel any settling tween — the glow goes to full now
+    setOpenP(1);
     window.removeEventListener('resize', sizeCanvas);
     // Quick light show only: flash + rays + spill. ~0.4s (0.65s for god
     // packs), then the cards land. No top movement, no black hole.
@@ -512,6 +553,8 @@ function attachSlice(wrap, data) {
     // so "Open it" did nothing. Buttons never start a slice.
     if (e.target.closest('button')) return;
     slicing = true; startX = e.clientX; lastPt = null;
+    openTween++; // a fresh swipe cancels any settling tween
+    setOpenP(0);
     canvasRect = canvas.getBoundingClientRect(); // re-measure at gesture start (cheap, once per swipe)
     try { wrap.setPointerCapture(e.pointerId); } catch { /* noop */ }
     drawTrail(e.clientX, e.clientY);
@@ -524,15 +567,18 @@ function attachSlice(wrap, data) {
     // that may never come.
     if (e.buttons === 0) { endSlice(); return; }
     drawTrail(e.clientX, e.clientY);
-    // Cached width — no layout read here any more.
+    // Cached width — no layout read here any more. The opening tracks the
+    // finger: glow + lift grow with progress, 0 at touch, 1 at threshold.
     const progress = Math.abs(e.clientX - startX) / sliceWidth;
+    setOpenP(progress / 0.5);
     if (progress >= 0.5) completeSlice();
   });
   function endSlice() {
     if (!slicing || opened) return;
     slicing = false;
-    // Short swipe: just fade the trail back. There is no progress bar
-    // any more — nothing else to reset.
+    // Short swipe: fade the trail back and ease the opening glow down —
+    // the pack settles back cleanly, nothing snaps.
+    settleOpenP();
     fadeTrail();
   }
   wrap.addEventListener('pointerup', endSlice);
@@ -566,6 +612,7 @@ function showFan() {
   $('#ripControls').hidden = false;
   $('#valuePill').hidden = false;
   $('#viewCardBtn').hidden = true;
+  $('#activeCardInfo').hidden = true;
   $('#valueSoFar').textContent = fmt(revealedValue);
   activeFlipped = false;
   updateCardsLeft();
@@ -590,8 +637,7 @@ function showFan() {
     // <img> so it is never a blank face while loading.
     el.innerHTML = `<div class="flip-inner">
       <div class="flip-face flip-back">${CARD_BACK_SVG}<div class="shine"></div></div>
-      <div class="flip-face flip-front"><img src="${card.image}" data-hires="${card.imageHires || card.image}" alt="${escapeHtml(card.name)}" draggable="false"><div class="shine"></div>
-      <div class="card-price"><span>${escapeHtml(card.name)}</span><span>${money(card.price)}</span></div></div>
+      <div class="flip-face flip-front"><img src="${card.image}" data-hires="${card.imageHires || card.image}" alt="${escapeHtml(card.name)}" draggable="false"><div class="shine"></div></div>
     </div>`;
     fan.appendChild(el);
   });
@@ -638,6 +684,13 @@ function revealActive() {
   updateCardsLeft();
   revealedValue += card.price || 0;
   animateValue(revealedValue);
+  // The card's name + price show in the caption UNDER the fan — never
+  // overlaid on the card itself (the old strip hid the card's bottom).
+  // A null price (TCGdex fallback) shows $— honestly.
+  const info = $('#activeCardInfo');
+  info.textContent = `${card.name} — ${money(card.price)}`;
+  info.classList.toggle('no-price', card.price == null);
+  info.hidden = false;
   revealedCards.push(card);
   renderThumbs();
   $('#viewCardBtn').hidden = false;
@@ -667,6 +720,7 @@ function advanceCard(dx, dy) {
   activeFlipped = false;
   updateCardsLeft();
   $('#viewCardBtn').hidden = true;
+  $('#activeCardInfo').hidden = true;
   const next = activeCardEl();
   if (next) {
     // Next card starts exactly flat — never inherits the previous tilt.
@@ -801,12 +855,22 @@ function attachReveal(fan) {
 
 function showSummary() {
   $('#ripControls').hidden = true;
+  $('#valuePill').hidden = true;
+  // The summary REPLACES the rip stage: the old code left the slice/fan
+  // UI in #ripStage, so the open-all view showed the sealed pack, the
+  // rainbow trail and the "Open it" button still sitting above the summary
+  // (plus a leftover gold teaser/confetti over the summary title).
+  $('#ripStage').innerHTML = '';
   const s = $('#summary');
   const allCards = packs.flatMap((p) => p.cards);
   const total = packs.reduce((sum, p) => sum + p.totalValue, 0);
   const best = allCards.reduce((b, c) => ((c.price || 0) > (b.price || 0) ? c : b), allCards[0]);
   const hasGod = packs.some((p) => p.hasGod);
   const hasSuper = packs.some((p) => p.hasSuper);
+  // TCGdex fallback pools carry no prices at all: every amount is $0.00 /
+  // $— through no fault of the UI. Say so plainly instead of leaving a
+  // bare $0.00 that reads as "the money isn't showing up".
+  const noPrices = allCards.length > 0 && allCards.every((c) => c.price == null);
   // Save every card from every pack to the binder.
   const now = Date.now();
   for (const p of packs) for (const c of p.cards) binder.push({ id: c.id, name: c.name, rarity: c.rarity, price: c.price, image: c.image, imageHires: c.imageHires, setName: p.set.name, ts: now });
@@ -817,9 +881,10 @@ function showSummary() {
   s.hidden = false;
   s.innerHTML = `<h3>${escapeHtml(currentSet.name)} — ${packs.length > 1 ? packs.length + ' packs' : 'pack'} summary</h3>
     <div class="total" id="summaryTotal">$0.00</div>
+    ${noPrices ? '<p class="price-note">Prices unavailable for this set right now — the card API didn’t return any prices, so amounts show $0.00. The cards themselves are real.</p>' : ''}
     <p>Best pull: <b>${escapeHtml(best.name)}</b> · ${escapeHtml(best.rarity)} · ${fmt(best.price)}</p>
     ${packs.map((p, i) => `<div class="summary-pack"><b>Pack ${i + 1} — ${fmt(p.totalValue)}</b>
-      <div class="summary-grid">${p.cards.map((c) => `<button class="summary-thumb" type="button" data-card="${escapeHtml(c.id)}" aria-label="View ${escapeHtml(c.name)}"><img src="${c.image}" alt="${escapeHtml(c.name)}" title="${escapeHtml(c.name)}"></button>`).join('')}</div></div>`).join('')}
+      <div class="summary-grid">${p.cards.map((c) => `<button class="summary-thumb" type="button" data-card="${escapeHtml(c.id)}" aria-label="View ${escapeHtml(c.name)} — ${money(c.price)}"><span class="st-art"><img src="${c.image}" alt="${escapeHtml(c.name)}" title="${escapeHtml(c.name)}"></span><span class="st-price${c.price == null ? ' no-price' : ''}">${money(c.price)}</span></button>`).join('')}</div></div>`).join('')}
     <div class="summary-actions">
       <button class="primary-btn" id="againBtn" type="button">Rip another ${escapeHtml(currentSet.name)}</button>
       <button class="secondary-btn" id="summaryBinderBtn" type="button">View binder</button>

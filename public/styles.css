@@ -137,7 +137,25 @@ h2{font-size:26px}
 .slice-wrap.multi .slice-packs .pack-inner:nth-child(3){transform:rotate(2deg) translateY(-2px)}
 .slice-wrap.multi .slice-packs .pack-inner:nth-child(4){transform:rotate(-2deg) translateY(5px)}
 .slice-wrap.multi .slice-packs .pack-inner:nth-child(5){transform:rotate(3deg) translateY(2px)}
+/* The 5-pack fan is 438px wide at the default 150px tiles — wider than a
+   360px phone, so the outer packs were cut off at the viewport edges.
+   On narrow screens the tiles shrink so the whole fan fits. */
+@media (max-width:420px){
+  .slice-wrap.multi .slice-packs .pack-inner{width:110px}
+  .slice-wrap.multi .slice-packs .pack-inner + .pack-inner{margin-left:-64px}
+}
 .trail-canvas{position:absolute;inset:0;z-index:8;pointer-events:none;will-change:opacity}
+/* Progress-driven opening glow: driven by JS from the swipe itself
+   (--open-p is set as a number 0..1 on the wrap). At rest it is invisible;
+   as the finger moves across the pack it brightens — light spill + rays
+   growing with the swipe — so the opening visibly starts WHILE swiping,
+   not only when the threshold is crossed. No progress bar: the glow and
+   the rainbow trail are the only feedback. */
+.slice-wrap{--open-p:0}
+.slice-glow{position:absolute;inset:-40px;z-index:2;pointer-events:none;opacity:0;
+  background:radial-gradient(circle at 50% 50%,rgba(255,240,180,.55),rgba(245,197,66,.18) 45%,transparent 70%),
+    repeating-conic-gradient(from 0deg,rgba(245,197,66,.22) 0 6deg,transparent 6deg 18deg);
+  -webkit-mask:radial-gradient(circle,black 0 55%,transparent 75%);mask:radial-gradient(circle,black 0 55%,transparent 75%)}
 .slice-hint{margin-top:12px;color:var(--muted);font-size:14px}
 .gold-aura{position:absolute;inset:-30px;z-index:1;border-radius:24px;pointer-events:none;
   background:radial-gradient(circle,rgba(245,197,66,.5),rgba(245,197,66,.12) 55%,transparent 75%);
@@ -150,15 +168,24 @@ h2{font-size:26px}
   animation:spin 14s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-/* ---- Card fan / flip ---- */
+/* ---- Card fan / flip ----
+   The flip card is a real Pokémon card, so its box is the card's real
+   ratio (600x825) — the old 5/7 box was slightly narrower than a card,
+   so object-fit:cover trimmed ~2% off the left and right edges of every
+   card. With the exact ratio, cover crops nothing; the img is contain
+   anyway as belt-and-braces. There is deliberately NO price strip overlaid
+   on the card face any more: the old strip covered the bottom ~12% of the
+   card (flavour text + copyright line were hidden behind it). The revealed
+   card's name + price now show in the caption line under the fan
+   (#activeCardInfo), so the card itself is 100% visible. */
 .fan{position:relative;width:100%;display:flex;justify-content:center;min-height:440px;touch-action:none;user-select:none;-webkit-user-select:none;animation:fanIn .35s ease}
 @keyframes fanIn{from{opacity:0;transform:translate3d(0,10px,0) scale(.985)}to{opacity:1;transform:translate3d(0,0,0) scale(1)}}
-.flip-card{position:absolute;width:var(--card-w);max-width:300px;aspect-ratio:5/7;perspective:1200px;touch-action:none;cursor:pointer;will-change:transform}
+.flip-card{position:absolute;width:var(--card-w);max-width:300px;aspect-ratio:600/825;perspective:1200px;touch-action:none;cursor:pointer;will-change:transform}
 .flip-inner{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .55s cubic-bezier(.3,.7,.3,1.15)}
 .flip-card.flipped .flip-inner{transform:rotateY(180deg)}
 .flip-card.slowmo .flip-inner{transition-duration:1.4s}
 .flip-face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:12px;overflow:hidden;box-shadow:0 14px 34px rgba(0,0,0,.6)}
-.flip-face img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
+.flip-face img{width:100%;height:100%;object-fit:contain;display:block;pointer-events:none}
 .flip-back{transform:rotateY(0)}
 .flip-front{transform:rotateY(180deg);background:linear-gradient(160deg,#3a2a6e,#1c3a6e 45%,#7a2a3a)}
 .flip-front img{background:linear-gradient(160deg,#2a2a55,#1c3a6e)}
@@ -170,7 +197,10 @@ h2{font-size:26px}
 .flip-card.gold-halo{box-shadow:0 0 0 3px var(--gold),0 0 44px 10px rgba(245,197,66,.75)}
 .flip-card.gold-halo .flip-inner{animation:haloBreathe 1.1s ease-in-out infinite}
 @keyframes haloBreathe{0%,100%{filter:brightness(1)}50%{filter:brightness(1.25)}}
-.card-price{position:absolute;left:0;right:0;bottom:0;z-index:3;background:linear-gradient(0deg,rgba(0,0,0,.85),transparent);color:#fff;padding:22px 10px 8px;font-weight:800;font-size:14px;display:flex;justify-content:space-between}
+/* Caption for the flipped card — name + price, shown UNDER the fan, never
+   on top of the card (the old overlay strip hid the card's bottom). */
+.active-card-info{display:block;width:100%;text-align:center;font-weight:800;font-size:15px;color:var(--gold2);margin-top:2px}
+.active-card-info.no-price{color:var(--muted)}
 .rip-controls{display:flex;align-items:center;gap:14px;justify-content:center;margin-top:8px;flex-wrap:wrap}
 .primary-btn{background:var(--yellow);color:#111;border:0;border-radius:999px;padding:12px 20px;font-weight:900;font-size:15px}
 .cards-left{color:var(--muted);font-weight:700}
@@ -178,9 +208,21 @@ h2{font-size:26px}
 .summary h3{margin:0 0 6px;font-size:22px}
 .summary .total{font-size:30px;font-weight:900;color:var(--gold2)}
 .summary-grid{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:14px}
-.summary-grid img{width:64px;border-radius:6px}
-.summary-thumb{background:none;border:0;padding:0;cursor:pointer}
-.summary-thumb img{width:64px;border-radius:6px;display:block}
+/* Summary thumbs show the card WITHOUT its yellow frame: a real card's
+   printed border is ~3% of its width, and at thumbnail size it reads as a
+   thick gold frame sticking out around every card (worst on the left edge,
+   where the eye lands first). The art window clips it off — the img is
+   scaled ~9% inside an overflow-hidden frame, so the border is cropped
+   and only the card art shows. The button itself has no border, outline
+   or shadow at all. Each thumb also carries its price underneath, so the
+   money amounts show in the open-all view (they used to be nowhere in it).
+   A null price (TCGdex fallback sets) shows $— honestly, never a blank. */
+.summary-thumb{display:flex;flex-direction:column;align-items:center;gap:3px;width:64px;background:none;border:0;padding:0;cursor:pointer;flex:none}
+.summary-thumb .st-art{display:block;width:64px;height:88px;overflow:hidden;border-radius:6px;flex:none;background:#0b0b14}
+.summary-thumb .st-art img{width:70px;height:96px;margin:-4px 0 0 -3px;display:block}
+.summary-thumb .st-price{font-size:11px;font-weight:800;color:var(--gold2);line-height:1.2}
+.summary-thumb .st-price.no-price{color:var(--muted)}
+.price-note{color:var(--muted);font-size:12px;line-height:1.5;margin:8px 0 0}
 .summary-pack{margin-top:14px}
 .summary-pack b{color:var(--gold2)}
 .revealed-thumbs{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-top:8px}
@@ -188,7 +230,11 @@ h2{font-size:26px}
 .thumb img{width:40px;border-radius:4px;display:block;border:1px solid #3a3a5c}
 /* ---- Card viewer ---- */
 .viewer-card{text-align:center}
-.viewer-card img{width:100%;max-width:320px;border-radius:12px;display:block;margin:0 auto}
+/* The img keeps the card's real ratio even before it loads, so the panel
+   never collapses to just the name/price while the hires image is still
+   coming down (it used to flash an empty panel with the fan card showing
+   through the backdrop behind it). */
+.viewer-card img{width:100%;max-width:320px;aspect-ratio:600/825;object-fit:contain;background:#0b0b14;border-radius:12px;display:block;margin:0 auto}
 .viewer-meta{margin-top:12px;display:flex;flex-direction:column;gap:2px}
 .viewer-meta b{font-size:18px}
 .viewer-meta span{color:var(--muted);font-size:14px}
