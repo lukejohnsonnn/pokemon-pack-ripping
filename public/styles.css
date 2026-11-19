@@ -215,7 +215,16 @@ h2{font-size:26px}
 .odds-row{padding:10px 0;border-bottom:1px solid #2a2a48}
 .odds-row b{display:block;margin-bottom:2px}
 .odds-row span{color:var(--muted);font-size:13px;line-height:1.45;display:block}
-.celebration{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:auto;cursor:pointer;text-align:center;padding:20px;background:rgba(10,10,20,.35)}
+/* The celebration must never block the game underneath it. It used to be
+   a full-screen pointer-events:auto layer for 2.6s after every super/god
+   pull, so while the GOD PULL banner was up no tap or swipe could reach
+   the fan (or the summary buttons) — the pack looked frozen, and a swipe
+   on the last card of a god pull did nothing at all. Now the banner sits
+   at the top, the layer itself is click-through, and only the banner text
+   itself is tappable (tap it to dismiss early); swipes and taps on the
+   cards pass straight through. It still auto-hides after 2.6s. */
+.celebration{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding-top:12vh;pointer-events:none;text-align:center;padding-left:20px;padding-right:20px;background:rgba(10,10,20,.35)}
+.celebration>*{pointer-events:auto;cursor:pointer}
 .cele-hint{margin-top:18px;font-size:13px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
 .cele-banner{font-size:clamp(44px,13vw,92px);font-weight:900;letter-spacing:.04em;color:var(--gold2);
   text-shadow:0 0 30px rgba(245,197,66,.9),0 4px 0 #8a6400;animation:bannerPop .6s cubic-bezier(.2,1.6,.4,1)}

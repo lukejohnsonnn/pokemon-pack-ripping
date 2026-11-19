@@ -572,11 +572,18 @@ function revealActive() {
   }
 }
 
-function advanceCard() {
+// THE one advance path. Every way of dealing a card away — tap on a
+// face-up card, or a swipe on a face-up card — comes through here, so
+// ripIndex, the counter, and the next-card reset can never drift apart
+// again. dx/dy let a swipe deal the card away in the swipe direction;
+// a tap deals it to the right (dx null = 1.2x viewport width).
+function advanceCard(dx, dy) {
   const el = activeCardEl();
   if (!el) return;
+  const flyX = dx != null ? dx : window.innerWidth * 1.2;
+  const flyY = dy != null ? dy : 0;
   el.style.transition = 'transform .45s ease-in, opacity .45s';
-  el.style.transform = 'translateX(120vw) rotate(0deg)';
+  el.style.transform = `translate(${flyX}px, ${flyY}px) rotate(0deg)`;
   el.style.opacity = '0';
   setTimeout(() => el.remove(), 480);
   ripIndex += 1;
@@ -653,6 +660,11 @@ function attachReveal(fan) {
     if (!drag) return;
     cancelAnimationFrame(rafId);
     const el = activeCardEl();
+    // Release pointer capture explicitly before anything below can remove
+    // the card: a card taken out of the DOM while it still holds capture
+    // can leave the next gesture retargeted at a dead element, so the
+    // next card never receives pointerdown and the fan looks frozen.
+    if (el && e.pointerId != null) { try { el.releasePointerCapture(e.pointerId); } catch { /* already released on pointerup */ } }
     const dt = Date.now() - drag.t0;
     const isTap = drag.moved < 12 && dt < 350;
     const fling = Math.hypot(tgtX, tgtY) > 70 || (drag.moved > 40 && dt < 250);
@@ -664,13 +676,25 @@ function attachReveal(fan) {
       if (el.classList.contains('flipped')) advanceCard();
       else revealActive();
     } else if (fling) {
-      el.style.transition = 'transform .3s ease-out, opacity .3s';
-      el.style.transform = `translate(${tgtX * 4}px, ${tgtY * 2}px) rotate(0deg)`;
-      el.style.opacity = '0';
-      const flipped = el.classList.contains('flipped');
-      setTimeout(() => { el.remove(); }, 320);
-      if (flipped) { activeFlipped = false; ripIndex += 1; updateCardsLeft(); $('#viewCardBtn').hidden = true; if (!activeCardEl()) { if (packIdx + 1 < packs.length) { packIdx += 1; rip = packs[packIdx]; ripIndex = 0; setTimeout(showFan, 350); } else setTimeout(showSummary, 350); } else { const n = activeCardEl(); if (n) n.style.transform = 'translateY(0) rotate(0deg) scale(1)'; } }
-      else { revealActive(); setTimeout(() => { if (activeCardEl()) advanceCard(); }, 650); }
+      if (!el.classList.contains('flipped')) {
+        // Swipe on a FACE-DOWN card reveals it in place — it does NOT deal
+        // it away. The old code flipped it, scheduled its removal 320ms
+        // later, then tried to advance 650ms later; by then the element
+        // was gone, so activeCardEl() returned null, ripIndex never
+        // advanced, and every later pointerdown bailed out (no active
+        // card) — the fan glitched (card flew off, snapped back invisible,
+        // vanished) and then froze completely. A second swipe on the now
+        // face-up card deals it away through advanceCard() below.
+        el.style.transition = 'transform .35s cubic-bezier(.2,1.4,.4,1)';
+        el.style.transform = 'translate(0px, 0px) rotate(0deg)';
+        setTimeout(() => { el.style.transition = ''; }, 380);
+        revealActive();
+      } else {
+        // Swipe on a FACE-UP card deals it away in the swipe direction,
+        // through the single shared advance path — no duplicated ripIndex
+        // / counter / next-card logic here any more.
+        advanceCard(tgtX * 4, tgtY * 2);
+      }
     } else {
       // Spring snap-back, landing flat.
       el.style.transition = 'transform .35s cubic-bezier(.2,1.4,.4,1)';
